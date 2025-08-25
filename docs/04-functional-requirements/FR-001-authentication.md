@@ -32,3 +32,20 @@ Este documento especifica os requisitos funcionais para o sistema de autenticaç
     2.  O sistema deve usar o serviço de recuperação de senha do Supabase para enviar um e-mail com um link de redefinição.
     3.  O link deve levar o usuário a uma página onde ele pode definir uma nova senha.
     4.  Após a redefinição bem-sucedida, o usuário deve ser notificado e poder fazer login com a nova senha.
+
+### RF-01.4: Autenticação Multi-Fator (MFA/TOTP)
+-   **Descrição:** Para aumentar a segurança, os usuários devem poder habilitar a Autenticação Multi-Fator (MFA) usando um aplicativo de senhas de uso único baseadas em tempo (TOTP), como Google Authenticator ou similar.
+-   **Critérios de Aceitação:**
+    1.  Na página de configurações de segurança, o usuário deve ter a opção de habilitar o MFA.
+    2.  Ao habilitar, o sistema deve apresentar um QR code para ser escaneado pelo aplicativo TOTP.
+    3.  O usuário deve confirmar a configuração inserindo um código gerado pelo aplicativo.
+    4.  Uma vez habilitado, o fluxo de login (RF-01.2) deve exigir, após a validação da senha, a inserção do código TOTP.
+    5.  O usuário deve ter acesso a códigos de recuperação (backup codes) para o caso de perder o acesso ao seu dispositivo TOTP.
+
+### RF-01.5: Funcionalidade "Lembrar este dispositivo"
+-   **Descrição:** Durante o login com MFA, o usuário deve ter a opção de marcar o dispositivo como "confiável" para não precisar inserir o código TOTP em logins futuros a partir do mesmo navegador.
+-   **Critérios de Aceitação:**
+    1.  Na tela de inserção do código TOTP, deve haver uma checkbox com o texto "Lembrar este dispositivo por 30 dias".
+    2.  Se a caixa for marcada, o sistema não deve solicitar o código TOTP para aquele usuário naquele dispositivo/navegador por um período de 30 dias.
+    3.  A sessão ainda deve expirar normalmente, mas o passo de MFA será pulado no próximo login.
+    4.  O usuário deve poder "esquecer" todos os dispositivos confiáveis a partir das suas configurações de segurança.

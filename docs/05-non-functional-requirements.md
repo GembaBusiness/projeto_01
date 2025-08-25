@@ -9,6 +9,21 @@ Este documento descreve os requisitos não-funcionais (RNFs) do sistema, que def
 -   **Autenticação Segura:** As senhas dos usuários DEVEM ser armazenadas de forma segura, utilizando os mecanismos de hashing fornecidos pelo Supabase Auth.
 -   **Proteção contra Vulnerabilidades Comuns:** A aplicação deve ser protegida contra ataques comuns da web (ex: XSS, CSRF), aproveitando as boas práticas e proteções nativas do WeWeb e Supabase.
 
+### RNF-01.1: Segurança de Armazenamento de Ficheiros
+-   **Descrição:** Os ficheiros enviados pelos usuários (e.g., avatares, documentos) DEVEM ser armazenados de forma segura e com escopo por tenant.
+-   **Medida:**
+    1.  Utilização do Supabase Storage para armazenamento.
+    2.  Os ficheiros devem ser organizados em buckets ou pastas com base na `company_id`.
+    3.  Políticas de acesso no Storage DEVEM ser configuradas para garantir que um usuário só possa acessar ou fazer upload para o diretório da sua própria empresa.
+    4.  Implementação de varredura de vírus no upload de ficheiros para prevenir a distribuição de malware.
+
+### RNF-01.2: Políticas de Sessão e Palavra-passe
+-   **Descrição:** O sistema DEVE impor políticas robustas para a gestão de sessões e a complexidade das palavras-passe.
+-   **Medida:**
+    1.  **Expiração de Sessão:** As sessões de usuário DEVEM expirar automaticamente após um período de inatividade (e.g., 24 horas para sessão ativa, 30 minutos para inatividade).
+    2.  **Complexidade da Palavra-passe:** As palavras-passe definidas pelos usuários DEVEM exigir um comprimento mínimo (e.g., 12 caracteres) e uma combinação de letras maiúsculas, minúsculas, números e símbolos.
+    3.  **Proteção contra Brute-force:** O sistema de autenticação DEVE ter proteção contra ataques de força bruta (e.g., bloqueio temporário de conta após várias tentativas falhadas).
+
 ## RNF-02: Performance
 
 -   **Tempo de Carregamento da Página:** O tempo de carregamento inicial do dashboard principal (após login) DEVE ser inferior a 3 segundos em uma conexão de internet de banda larga padrão.
@@ -27,3 +42,22 @@ Este documento descreve os requisitos não-funcionais (RNFs) do sistema, que def
 
 -   **Documentação:** A documentação (este repositório) DEVE ser mantida atualizada a cada nova funcionalidade ou mudança arquitetónica.
 -   **Nomenclatura:** Os nomes de variáveis, componentes e páginas no WeWeb DEVEM seguir as convenções definidas no `06-weweb-style-guide.md` para facilitar a compreensão e manutenção.
+
+## RNF-05: Confiabilidade e Resiliência
+
+-   **Concorrência Otimista:** Para evitar condições de corrida (race conditions) em operações concorrentes sobre o mesmo recurso, o sistema DEVE usar um mecanismo de concorrência otimista.
+    -   **Medida:** Utilização de um campo de versão (`version` ou `updated_at`) nas tabelas críticas. Antes de uma operação de UPDATE, o sistema verifica se a versão do registo não mudou desde que foi lido. Se mudou, a operação é rejeitada para evitar a sobreposição de dados.
+-   **Backup e Restauração:** O sistema DEVE ter uma política de backup e restauração bem definida para garantir a recuperação de dados em caso de desastre.
+    -   **Medida:**
+        1.  Configuração dos backups automáticos do Supabase (Point-in-Time Recovery - PITR).
+        2.  Os objetivos de **RPO (Recovery Point Objective)** e **RTO (Recovery Time Objective)** DEVEM ser formalmente definidos (e.g., RPO de 24 horas, RTO de 2 horas).
+        3.  Procedimentos de restauração DEVEM ser testados periodicamente.
+
+## RNF-06: Privacidade e Compliance (LGPD/GDPR)
+
+-   **Minimização de PII:** O sistema DEVE coletar e armazenar apenas as Informações de Identificação Pessoal (PII) estritamente necessárias para a sua operação.
+    -   **Medida:** Realizar uma auditoria dos dados coletados e remover/anonimizar quaisquer campos que não sejam essenciais para o negócio.
+-   **Exclusão/Anonimização de Dados:** O sistema DEVE fornecer um mecanismo para que os administradores de um tenant possam solicitar a exclusão ou anonimização completa dos dados da sua empresa.
+    -   **Medida:** Criação de um procedimento (runbook) que detalha os passos para localizar e apagar/anonimizar todos os dados associados a uma `company_id`, incluindo dados no banco de dados e no storage.
+-   **Registo de Consentimentos:** O sistema DEVE manter um registo auditável de todos os consentimentos dados pelos usuários.
+    -   **Medida:** A tabela `user_consents` DEVE ser usada para registar quando cada usuário aceitou cada versão dos documentos legais (e.g., Termos de Serviço, Política de Privacidade).

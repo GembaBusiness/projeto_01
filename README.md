@@ -6,11 +6,12 @@ Este repositório contém um template de software reutilizável para a criação
 A stack tecnológica foi escolhida para maximizar a agilidade e minimizar a necessidade de código complexo, focando na lógica de negócio.
 
 ## Funcionalidades Principais
--   **Arquitetura Multi-Tenant:** Isolamento de dados seguro entre empresas (tenants) usando Row Level Security (RLS) do PostgreSQL.
--   **Autenticação Completa:** Fluxos de cadastro, login e recuperação de senha prontos para uso.
--   **Controle de Acesso Baseado em Papéis (RBAC):** Sistema de papéis e permissões para controlar o que cada usuário pode ver e fazer.
--   **Gestão de Empresa:** Funcionalidades para administradores convidarem e gerenciarem usuários.
--   **Menu de Navegação Dinâmico:** O menu se adapta de acordo com as permissões do usuário.
+-   **Arquitetura Híbrida RBAC + ABAC:** Controle de acesso robusto que combina papéis (o que um usuário pode fazer) com atributos (sobre quais dados pode atuar), implementado via RLS para garantir que os usuários só acessem os dados corretos.
+-   **Monetização e Gestão de Assinaturas:** Lógica completa para gestão de planos, funcionalidades e assinaturas, integrada a um gateway de pagamentos para processar cobranças.
+-   **Segurança de Ponta a Ponta (MFA, RLS):** Múltiplas camadas de segurança, incluindo autenticação multi-fator (MFA/TOTP), Row Level Security (RLS) para isolamento de dados, e políticas de sessão.
+-   **Trilha de Auditoria para Compliance:** Registro detalhado de atividades críticas do sistema, essencial para auditoria e conformidade com regulamentações como LGPD e GDPR.
+-   **Arquitetura Multi-Tenant:** Desenhado desde o início para servir múltiplas empresas (tenants) com total isolamento e segurança dos seus dados.
+-   **Gestão de Usuários e Convites:** Ferramentas para administradores de tenants gerenciarem seus próprios usuários, incluindo um fluxo de convites.
 
 ## Stack Tecnológica
 -   **Frontend:** [WeWeb](https://weweb.io/) (Plataforma Low-Code)
