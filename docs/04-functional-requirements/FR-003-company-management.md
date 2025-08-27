@@ -33,3 +33,9 @@ Este documento especifica os requisitos para as funcionalidades que permitem aos
     2.  O sistema deve pedir uma confirmação antes de prosseguir com a remoção.
     3.  A remoção deve desativar o perfil do usuário na tabela `profiles` ou removê-lo, impedindo o acesso à empresa. (A conta em `auth.users` pode ser mantida, mas o acesso à empresa é revogado).
     4.  Um administrador não pode remover a si próprio.
+
+---
+
+## Tabelas de Banco de Dados Relacionadas
+-   [`companies`](../03-database-schema.md#companies): Armazena os dados da própria empresa (tenant).
+-   [`profiles`](../03-database-schema.md#profiles): Gerencia os perfis dos usuários que pertencem à empresa.

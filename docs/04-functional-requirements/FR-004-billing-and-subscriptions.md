@@ -41,3 +41,12 @@ Este documento especifica os requisitos funcionais para o ciclo de vida da monet
     1.  O acesso a uma funcionalidade específica deve ser verificado contra o plano ativo do tenant (`subscriptions.plan_id`).
     2.  Limites quantitativos (e.g., número de usuários, volume de armazenamento) devem ser impostos pela lógica de negócio.
     3.  Quando um usuário tenta executar uma ação que excede os limites do seu plano, ele deve receber uma mensagem informativa com um call-to-action para fazer um upgrade.
+
+---
+
+## Tabelas de Banco de Dados Relacionadas
+-   [`subscriptions`](../03-database-schema.md#subscriptions): Armazena o estado da assinatura de cada tenant.
+-   [`plans`](../03-database-schema.md#plans): Define os planos de assinatura disponíveis.
+-   [`features`](../03-database-schema.md#features): Define as funcionalidades individuais de cada plano.
+-   [`plan_features`](../03-database-schema.md#plan_features): Associa funcionalidades a planos.
+-   [`companies`](../03-database-schema.md#companies): A entidade que possui a assinatura.

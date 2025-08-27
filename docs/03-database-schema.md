@@ -1,101 +1,205 @@
 # 3. Esquema da Base de Dados
 
-Este documento detalha o esquema do banco de dados PostgreSQL no Supabase, incluindo a descrição das tabelas e seus relacionamentos.
+Este documento detalha o esquema do banco de dados PostgreSQL, incluindo a finalidade de cada tabela, sua estrutura DDL, e os relacionamentos com os requisitos do sistema.
 
-## 3.1. Diagrama de Entidade-Relacionamento (DER)
+## 3.1. Diagrama Visual
+Uma representação visual do relacionamento entre as entidades pode ser encontrada no [Diagrama de Entidade-Relacionamento](./01-system-architecture.md#141-diagrama-de-entidade-relacionamento-conceitual) na documentação de arquitetura.
 
-*Placeholder para o Diagrama de Entidade-Relacionamento (DER). O diagrama deve incluir as tabelas principais como `companies`, `profiles`, `roles`, e também as tabelas de monetização (`plans`, `features`, `plan_features`, `subscriptions`) e compliance (`consent_types`, `user_consents`). Recomenda-se usar uma ferramenta como o dbdiagram.io ou similar para gerar e incorporar a imagem aqui.*
+---
 
-## 3.2. Descrição das Tabelas
+## 3.2. Tabelas de Core e Gestão de Tenants
 
 ### `companies`
-Armazena as informações sobre as empresas (tenants) que utilizam o sistema.
--   `id` (uuid, chave primária): Identificador único da empresa.
--   `name` (text): Nome da empresa.
--   `created_at` (timestampz): Data e hora de criação.
--   ... (outros campos relevantes para a empresa)
+- **Finalidade e Justificativa:** Representa um tenant no sistema. É a tabela central que isola todos os outros recursos. Cada empresa é uma entidade de faturamento e um container para usuários e dados.
+- **Link para Requisitos:** [FR-003-company-management.md](./04-functional-requirements/FR-003-company-management.md)
+- **Definição (DDL):**
+  ```sql
+  -- Tabela para armazenar as empresas (tenants)
+  CREATE TABLE public.companies (
+      id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+      name text NOT NULL,
+      created_at timestamp with time zone DEFAULT now() NOT NULL
+  );
+  -- Ativar RLS
+  ALTER TABLE public.companies ENABLE ROW LEVEL SECURITY;
+  ```
+- **Campos e Restrições:**
+  - `id` (uuid, PK): Identificador único da empresa.
+  - `name` (text, NOT NULL): Nome público da empresa.
 
 ### `profiles`
-Estende a tabela `auth.users` do Supabase com informações de perfil específicas da aplicação, incluindo a associação a uma empresa.
--   `id` (uuid, chave primária, FK para `auth.users.id`): Identificador único do usuário.
--   `company_id` (uuid, FK para `companies.id`): Associa o usuário a uma empresa. **Crucial para o RLS.**
--   `role_id` (uuid, FK para `roles.id`): Define o papel do usuário dentro da empresa.
--   `full_name` (text): Nome completo do usuário.
--   `avatar_url` (text): URL para a foto de perfil.
--   ... (outros campos de perfil)
+- **Finalidade e Justificativa:** Estende a tabela `auth.users` do Supabase com informações específicas da aplicação, como a associação do usuário a uma `company` e a um `role`. É a ponte entre a autenticação e a lógica de negócio do tenant.
+- **Link para Requisitos:** [FR-001-authentication.md](./04-functional-requirements/FR-001-authentication.md)
+- **Definição (DDL):**
+  ```sql
+  -- Tabela para estender os usuários do Supabase Auth
+  CREATE TABLE public.profiles (
+      id uuid NOT NULL PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+      company_id uuid NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+      role_id uuid NOT NULL REFERENCES public.roles(id),
+      full_name text,
+      avatar_url text,
+      updated_at timestamp with time zone DEFAULT now()
+  );
+  -- Ativar RLS
+  ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+  -- Índices para otimizar joins
+  CREATE INDEX ix_profiles_company_id ON public.profiles USING btree (company_id);
+  ```
+- **Campos e Restrições:**
+  - `id` (uuid, PK, FK->auth.users): Chave primária, ligada diretamente ao usuário no sistema de autenticação.
+  - `company_id` (uuid, NOT NULL, FK->companies): Associa o perfil a uma empresa, crucial para as políticas de RLS.
+  - `role_id` (uuid, NOT NULL, FK->roles): Define o papel do usuário no sistema.
+  - `full_name` (text): Nome completo do usuário.
+
+---
+
+## 3.3. Tabelas de Controle de Acesso (RBAC)
 
 ### `roles`
-Define os papéis (ex: Admin, Member) que um usuário pode ter dentro de uma empresa.
--   `id` (uuid, chave primária): Identificador único do papel.
--   `name` (text): Nome do papel (ex: 'Administrator', 'Standard User').
--   `description` (text): Descrição das responsabilidades do papel.
+- **Finalidade e Justificativa:** Define os papéis que um usuário pode ter (e.g., Admin, Member). Os papéis são a base do sistema RBAC, determinando o conjunto de permissões de um usuário.
+- **Link para Requisitos:** [FR-002-rbac-and-permissions.md](./04-functional-requirements/FR-002-rbac-and-permissions.md)
+- **Definição (DDL):**
+  ```sql
+  -- Tabela para os papéis de usuário
+  CREATE TABLE public.roles (
+      id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+      name text NOT NULL UNIQUE,
+      description text,
+      -- company_id é NULL para papéis de sistema (globais)
+      company_id uuid NULL REFERENCES public.companies(id) ON DELETE CASCADE
+  );
+  -- Ativar RLS
+  ALTER TABLE public.roles ENABLE ROW LEVEL SECURITY;
+  ```
+- **Campos e Restrições:**
+  - `id` (uuid, PK): Identificador único do papel.
+  - `name` (text, UNIQUE): Nome do papel (e.g., 'Admin', 'Member').
+  - `company_id` (uuid, NULL, FK->companies): Se nulo, é um papel de sistema. Se preenchido, é um papel customizado do tenant.
 
 ### `permissions`
-Define as permissões granulares que podem ser associadas a papéis.
--   `id` (uuid, chave primária): Identificador único da permissão.
--   `name` (text, único): Nome da permissão (ex: 'users:create', 'invoices:read').
--   `description` (text): Descrição do que a permissão concede.
+- **Finalidade e Justificativa:** Define as permissões granulares do sistema (e.g., 'users:create', 'invoices:read'). Abstrai as ações para que possam ser agrupadas em papéis.
+- **Link para Requisitos:** [FR-002-rbac-and-permissions.md](./04-functional-requirements/FR-002-rbac-and-permissions.md)
+- **Definição (DDL):**
+  ```sql
+  -- Tabela para as permissões granulares
+  CREATE TABLE public.permissions (
+      id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+      name text NOT NULL UNIQUE,
+      description text
+  );
+  -- RLS não costuma ser necessária aqui, pois é uma tabela de metadados
+  ```
+- **Campos e Restrições:**
+  - `id` (uuid, PK): Identificador único da permissão.
+  - `name` (text, UNIQUE): O nome da permissão, usado na lógica de negócio para verificação.
 
-### `role_permissions` (Tabela de Junção)
-Associa papéis a permissões (relação muitos-para-muitos).
--   `role_id` (uuid, FK para `roles.id`)
--   `permission_id` (uuid, FK para `permissions.id`)
+### `role_permissions`
+- **Finalidade e Justificativa:** Tabela de junção (pivot) que associa `roles` a `permissions`, estabelecendo a relação muitos-para-muitos.
+- **Link para Requisitos:** [FR-002-rbac-and-permissions.md](./04-functional-requirements/FR-002-rbac-and-permissions.md)
+- **Definição (DDL):**
+  ```sql
+  -- Tabela de junção para papéis e permissões
+  CREATE TABLE public.role_permissions (
+      role_id uuid NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
+      permission_id uuid NOT NULL REFERENCES public.permissions(id) ON DELETE CASCADE,
+      PRIMARY KEY (role_id, permission_id)
+  );
+  ```
 
-### `navigation_items`
-Controla os itens de menu que são visíveis na interface do usuário, com base nas permissões.
--   `id` (uuid, chave primária): Identificador único do item de menu.
--   `label` (text): O texto que aparece no menu (ex: 'Dashboard').
--   `path` (text): O caminho/rota no frontend (ex: '/dashboard').
--   `icon` (text): Nome do ícone a ser exibido.
--   `required_permission` (text, FK para `permissions.name`): A permissão necessária para ver este item.
+---
 
-## 3.3. Tabelas de Monetização e Assinaturas
-
-Estas tabelas formam o núcleo do sistema de monetização, permitindo a criação de diferentes planos e o gerenciamento de assinaturas de clientes.
+## 3.4. Tabelas de Monetização e Assinaturas
 
 ### `plans`
-Define os planos de assinatura que podem ser oferecidos aos clientes.
--   `id` (uuid, chave primária): Identificador único do plano.
--   `name` (text): Nome do plano (e.g., "Básico", "Profissional").
--   `description` (text): Descrição do que o plano inclui.
--   `price` (numeric): Preço mensal do plano.
--   `stripe_price_id` (text, único): O ID do preço correspondente no Stripe, para integração com o checkout.
+- **Finalidade e Justificativa:** Define os planos de assinatura disponíveis. Centraliza as informações de preço e o ID do plano no gateway de pagamentos.
+- **Link para Requisitos:** [FR-004-billing-and-subscriptions.md](./04-functional-requirements/FR-004-billing-and-subscriptions.md)
+- **Definição (DDL):**
+  ```sql
+  -- Tabela para os planos de assinatura
+  CREATE TABLE public.plans (
+      id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+      name text NOT NULL,
+      description text,
+      price numeric(10, 2) NOT NULL,
+      stripe_price_id text NOT NULL UNIQUE
+  );
+  ```
 
 ### `features`
-Define as funcionalidades individuais que podem ser incluídas em um plano.
--   `id` (uuid, chave primária): Identificador único da funcionalidade.
--   `name` (text): Nome da funcionalidade (e.g., "Usuários Ilimitados", "Relatórios Avançados").
--   `description` (text): Detalhes sobre o que a funcionalidade faz.
+- **Finalidade e Justificativa:** Define as funcionalidades individuais que podem ser ativadas por um plano (e.g., "Usuários Ilimitados").
+- **Link para Requisitos:** [FR-004-billing-and-subscriptions.md](./04-functional-requirements/FR-004-billing-and-subscriptions.md)
+- **Definição (DDL):**
+  ```sql
+  -- Tabela para as funcionalidades dos planos
+  CREATE TABLE public.features (
+      id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+      name text NOT NULL UNIQUE,
+      description text
+  );
+  ```
 
-### `plan_features` (Tabela de Junção)
-Associa funcionalidades a planos (relação muitos-para-muitos).
--   `plan_id` (uuid, FK para `plans.id`)
--   `feature_id` (uuid, FK para `features.id`)
+### `plan_features`
+- **Finalidade e Justificativa:** Tabela de junção que associa `plans` a `features`.
+- **Link para Requisitos:** [FR-004-billing-and-subscriptions.md](./04-functional-requirements/FR-004-billing-and-subscriptions.md)
+- **Definição (DDL):**
+  ```sql
+  CREATE TABLE public.plan_features (
+      plan_id uuid NOT NULL REFERENCES public.plans(id) ON DELETE CASCADE,
+      feature_id uuid NOT NULL REFERENCES public.features(id) ON DELETE CASCADE,
+      PRIMARY KEY (plan_id, feature_id)
+  );
+  ```
 
 ### `subscriptions`
-Armazena o estado da assinatura de cada tenant.
--   `id` (uuid, chave primária): Identificador único da assinatura.
--   `company_id` (uuid, FK para `companies.id`): O tenant que possui a assinatura.
--   `plan_id` (uuid, FK para `plans.id`): O plano assinado.
--   `status` (enum): O estado atual da assinatura (e.g., `trialing`, `active`, `past_due`, `canceled`).
--   `trial_ends_at` (timestampz): Data de término do período de trial.
--   `current_period_ends_at` (timestampz): Data de término do ciclo de faturamento atual.
--   `stripe_subscription_id` (text, único): O ID da assinatura no Stripe, para sincronização via webhooks.
+- **Finalidade e Justificativa:** Armazena o estado da assinatura de cada tenant, incluindo o plano ativo e o status do ciclo de faturamento. É a fonte da verdade para a lógica de quotas e acesso a funcionalidades.
+- **Link para Requisitos:** [FR-004-billing-and-subscriptions.md](./04-functional-requirements/FR-004-billing-and-subscriptions.md)
+- **Definição (DDL):**
+  ```sql
+  -- Tabela para as assinaturas dos tenants
+  CREATE TYPE subscription_status AS ENUM ('trialing', 'active', 'past_due', 'canceled', 'unpaid');
+  CREATE TABLE public.subscriptions (
+      id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+      company_id uuid NOT NULL UNIQUE REFERENCES public.companies(id) ON DELETE CASCADE,
+      plan_id uuid NOT NULL REFERENCES public.plans(id),
+      status subscription_status NOT NULL,
+      trial_ends_at timestamp with time zone,
+      current_period_ends_at timestamp with time zone,
+      stripe_subscription_id text UNIQUE
+  );
+  -- Ativar RLS
+  ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
+  ```
 
-## 3.4. Tabelas de Privacidade e Compliance
+---
 
-Estas tabelas são essenciais para o cumprimento de regulamentações de privacidade como LGPD e GDPR.
+## 3.5. Tabelas de Privacidade e Compliance
 
 ### `consent_types`
-Define os tipos de consentimento que um usuário pode dar (e.g., "Termos de Serviço", "Política de Cookies").
--   `id` (uuid, chave primária): Identificador único do tipo de consentimento.
--   `name` (text, único): Nome curto do consentimento (e.g., `terms_of_service_v1`).
--   `description` (text): Texto explicando o que o consentimento implica.
--   `version` (integer): Versão do consentimento, para rastrear atualizações.
+- **Finalidade e Justificativa:** Define os tipos de consentimento auditáveis (e.g., "Termos de Serviço v1.2"). Essencial para compliance com LGPD/GDPR.
+- **Link para Requisitos:** [Requisitos Não-Funcionais (Privacidade)](./05-non-functional-requirements.md#rnf-06-privacidade-e-compliance-lgpdgdpr)
+- **Definição (DDL):**
+  ```sql
+  CREATE TABLE public.consent_types (
+      id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+      name text NOT NULL UNIQUE,
+      description text,
+      version text NOT NULL
+  );
+  ```
 
 ### `user_consents`
-Registra o consentimento dado por cada usuário, criando uma trilha de auditoria.
--   `id` (uuid, chave primária): Identificador único do registro de consentimento.
--   `user_id` (uuid, FK para `profiles.id`): O usuário que deu o consentimento.
--   `consent_type_id` (uuid, FK para `consent_types.id`): O tipo de consentimento que foi aceito.
--   `granted_at` (timestampz): Data e hora em que o consentimento foi dado.
+- **Finalidade e Justificativa:** Registra quando um usuário específico (`user_id`) deu um consentimento específico (`consent_type_id`), criando uma trilha de auditoria imutável.
+- **Link para Requisitos:** [Requisitos Não-Funcionais (Privacidade)](./05-non-functional-requirements.md#rnf-06-privacidade-e-compliance-lgpdgdpr)
+- **Definição (DDL):**
+  ```sql
+  CREATE TABLE public.user_consents (
+      id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+      consent_type_id uuid NOT NULL REFERENCES public.consent_types(id),
+      granted_at timestamp with time zone DEFAULT now() NOT NULL,
+      UNIQUE (user_id, consent_type_id)
+  );
+  -- Ativar RLS
+  ALTER TABLE public.user_consents ENABLE ROW LEVEL SECURITY;
+  ```

@@ -49,3 +49,9 @@ Este documento especifica os requisitos funcionais para o sistema de autenticaç
     2.  Se a caixa for marcada, o sistema não deve solicitar o código TOTP para aquele usuário naquele dispositivo/navegador por um período de 30 dias.
     3.  A sessão ainda deve expirar normalmente, mas o passo de MFA será pulado no próximo login.
     4.  O usuário deve poder "esquecer" todos os dispositivos confiáveis a partir das suas configurações de segurança.
+
+---
+
+## Tabelas de Banco de Dados Relacionadas
+-   [`profiles`](../03-database-schema.md#profiles): Armazena os dados de perfil do usuário, estendendo `auth.users`.
+-   [`user_consents`](../03-database-schema.md#user_consents): Registra o consentimento do usuário com os termos legais durante o cadastro.

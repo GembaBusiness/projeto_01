@@ -29,3 +29,10 @@ Este documento detalha os requisitos para o sistema de controle de acesso, que r
     2.  O botão "Convidar Usuário" só deve ser visível para usuários com a permissão 'users:create'.
     3.  A coluna "Salário" em uma tabela de funcionários só deve ser visível para usuários com a permissão 'employees:read:salary'.
     4.  A lógica de visibilidade deve ser aplicada de forma consistente em toda a aplicação.
+
+---
+
+## Tabelas de Banco de Dados Relacionadas
+-   [`roles`](../03-database-schema.md#roles): Define os papéis que podem ser atribuídos aos usuários.
+-   [`permissions`](../03-database-schema.md#permissions): Define as permissões granulares do sistema.
+-   [`role_permissions`](../03-database-schema.md#role_permissions): Associa papéis a permissões.

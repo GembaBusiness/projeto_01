@@ -5,50 +5,47 @@ Este documento descreve as práticas operacionais, de monitoramento e a estraté
 ## 8.1. Observabilidade e Suporte
 
 ### 8.1.1. Logs Estruturados
--   **Padrão:** Todos os logs gerados por Edge Functions ou outros processos de backend DEVEM seguir um formato de log estruturado (e.g., JSON).
--   **Conteúdo Mínimo:** Cada entrada de log DEVE incluir, no mínimo:
-    -   `timestamp`: Hora do evento.
-    -   `level`: Nível do log (e.g., `info`, `warn`, `error`).
-    -   `message`: Mensagem descritiva.
-    -   `context`: Um objeto contendo metadados relevantes (e.g., `function_name`, `user_id`, `company_id`, `correlation_id`).
--   **Justificativa:** Logs estruturados permitem a busca, filtragem e análise eficientes em ferramentas de observabilidade (e.g., Logflare, Datadog).
+-   **Padrão:** Todos os logs gerados por Edge Functions ou outros processos de backend DEVEM seguir um formato de log estruturado (JSON), contendo no mínimo `timestamp`, `level`, `message`, e `context`.
+-   **Justificativa:** Logs estruturados permitem a busca, filtragem e análise eficientes em ferramentas de observabilidade.
 
 ### 8.1.2. Monitoramento e Alarmes
--   **Fluxos Críticos:** Os fluxos de negócio mais críticos DEVEM ser monitorados ativamente.
--   **Alvos de Monitoramento:**
-    1.  **Webhooks de Pagamento:** Monitorar a taxa de sucesso e falha dos webhooks recebidos do gateway de pagamentos. Um alarme DEVE ser disparado se a taxa de erro exceder um limiar definido.
-    2.  **Fluxo de Cadastro (Saga):** Monitorar a taxa de sucesso e falha da saga de cadastro. Alarmes devem ser configurados para falhas na compensação.
-    3.  **Performance da API:** Monitorar a latência e a taxa de erro dos endpoints mais importantes da API.
--   **Ferramentas:** Utilizar as ferramentas de monitoramento do Supabase e/ou integrar com serviços externos.
+-   **Fluxos Críticos:** Os fluxos de negócio mais críticos (webhooks de pagamento, saga de cadastro) DEVEM ser monitorados ativamente.
+-   **Alarmes:** Alarmes DEVEM ser configurados para taxas de erro anormais ou falhas de compensação na saga, notificando a equipa de desenvolvimento.
 
 ### 8.1.3. Runbook Operacional
--   **Definição:** Um runbook (ou playbook) DEVE ser mantido para documentar os procedimentos operacionais padrão.
--   **Conteúdo:** O runbook DEVE incluir, no mínimo, os procedimentos para:
-    -   Lidar com um alarme de falha de webhook.
-    -   Executar o procedimento de exclusão de dados de um tenant.
-    -   Restaurar um backup do banco de dados.
+-   **Definição:** Um runbook DEVE ser mantido para documentar os procedimentos operacionais padrão.
+-   **Conteúdo Mínimo:**
+    -   Procedimento para lidar com falhas em webhooks de pagamento.
+    -   Procedimento para executar a [exclusão permanente de dados de um tenant](./05-non-functional-requirements.md#rnf-063-exclusãoanonimização-de-dados-hard-delete).
+    -   Procedimento para testar a [restauração de backups](./05-non-functional-requirements.md#rnf-052-backup-e-restauração).
 
 ## 8.2. Estratégia de Testes
 
 Para garantir a qualidade e prevenir regressões, a seguinte estratégia de testes deve ser adotada.
 
 ### 8.2.1. Testes de Unidade e Integração
--   **Foco:** A lógica de negócio implementada em Edge Functions e Funções de Banco de Dados (RPC) DEVE ter cobertura de testes de unidade e integração.
--   **Ferramentas:** Utilizar o framework de testes do Deno para Edge Functions e o `pg_prove` ou similar para testes no banco de dados.
+-   **Foco:** Lógica de negócio em Edge Functions e Funções de Banco de Dados (RPC).
+-   **Ferramentas:** Deno testing framework, pg_prove.
 
 ### 8.2.2. Cenários de Teste Críticos (End-to-End)
-Os seguintes cenários DEVEM ser validados através de testes end-to-end (E2E) automatizados ou manuais antes de cada release em produção:
+Os seguintes cenários DEVEM ser validados através de testes E2E. Cada cenário testa um [padrão de arquitetura](./01-system-architecture.md#15-padrões-de-arquitetura) fundamental.
 
 -   **Teste de Políticas RLS:**
-    -   Verificar que um usuário `A` da empresa `A` não consegue ler, modificar ou apagar dados da empresa `B`.
-    -   Verificar que um usuário sem o papel `admin` não consegue executar ações restritas a administradores.
+    -   **Cenário:** Verificar que um usuário da empresa A não consegue aceder a dados da empresa B.
+    -   **Link para o Padrão:** [Arquitetura Híbrida RBAC + ABAC](./01-system-architecture.md#151-arquitetura-híbrida-rbac--abac).
+
 -   **Teste de Idempotência:**
-    -   Disparar a mesma requisição crítica (e.g., criação de recurso) múltiplas vezes com a mesma chave de idempotência e verificar que a operação é executada apenas uma vez.
+    -   **Cenário:** Disparar uma requisição crítica (e.g., pagamento) múltiplas vezes com a mesma chave de idempotência e verificar que a operação é executada apenas uma vez.
+    -   **Link para o Padrão:** [Política de Idempotência](./01-system-architecture.md#153-política-de-idempotência).
+
 -   **Teste de Quotas:**
-    -   Levar um tenant ao seu limite de recursos (e.g., número de usuários).
-    -   Verificar que a próxima tentativa de criar um recurso acima do limite é bloqueada com uma mensagem de erro apropriada.
+    -   **Cenário:** Levar um tenant ao seu limite de recursos (e.g., usuários) e verificar que a próxima tentativa de criação é bloqueada.
+    -   **Link para a Política:** [Política de Quotas e Limites de Uso](./07-api-contracts-and-policies.md#73-política-de-quotas-e-limites-de-uso).
+
 -   **Teste de Concorrência:**
-    -   Simular duas operações de atualização concorrentes sobre o mesmo recurso.
-    -   Verificar que a política de concorrência otimista impede a sobreposição de dados e que uma das operações falha de forma controlada.
--   **Teste de Cache:**
-    -   Verificar que, após uma atualização de dados, os caches relevantes (se houver) são invalidados e a UI reflete os dados atualizados.
+    -   **Cenário:** Simular duas atualizações concorrentes sobre o mesmo recurso e verificar que a política de concorrência otimista impede a sobreposição de dados.
+    -   **Link para a Política:** [Confiabilidade e Resiliência](./05-non-functional-requirements.md#rnf-051-concorrência-otimista).
+
+-   **Teste de Saga (Cadastro):**
+    -   **Cenário:** Simular uma falha durante a saga de cadastro (e.g., falha ao criar o cliente no Stripe) e verificar que a compensação (e.g., apagar o usuário no Auth) é executada com sucesso.
+    -   **Link para o Padrão:** [Orquestração de Registo (Padrão Saga)](./01-system-architecture.md#152-orquestração-de-registo-padrão-saga).
