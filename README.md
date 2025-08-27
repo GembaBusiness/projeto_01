@@ -18,12 +18,12 @@ A stack tecnológica foi escolhida para maximizar a agilidade e minimizar a nece
 -   **Backend:** [Supabase](https://supabase.com/) (Backend-as-a-Service com PostgreSQL)
 
 ## Começando
-Para configurar o seu ambiente de desenvolvimento e começar a usar este template, por favor, siga o nosso guia de configuração.
--   **[Guia de Configuração do Ambiente](./docs/02-environment-setup.md)**
+Para começar a usar este template, recomendamos a leitura dos seguintes documentos:
+-   **[Arquitetura do Sistema](./docs/01-system-architecture.md):** Uma visão geral dos componentes, fluxos e padrões arquiteturais.
+-   **[Configuração do Ambiente](./docs/02-environment-setup.md):** Um guia passo a passo para configurar o seu ambiente de desenvolvimento.
 
 ## Documentação
-Toda a documentação do projeto, incluindo arquitetura, modelo de dados e requisitos, está centralizada no diretório `docs/`.
--   **[Acessar a Documentação](./docs/)**
+Toda a documentação do projeto, incluindo arquitetura, modelo de dados e requisitos, está centralizada no diretório [`docs/`](./docs/).
 
 ## Como Contribuir
 Estamos abertos a contribuições da comunidade! Se você deseja contribuir, por favor, leia nosso guia de contribuição.
