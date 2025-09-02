@@ -1,4 +1,4 @@
-# 7. Contratos e Políticas da API
+# Contratos e Políticas da API
 
 Este documento formaliza os contratos e as políticas que governam a interação com a API, garantindo consistência, performance e uso justo dos recursos.
 
