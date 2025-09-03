@@ -1,34 +1,43 @@
 # Tabela: `profiles`
 
-Armazena os dados públicos do perfil de um utilizador. Esta tabela é uma extensão da tabela `auth.users` do Supabase.
+**Finalidade e Justificativa:**
+Armazena os dados públicos do perfil de um utilizador, como nome completo e avatar. Esta tabela estende a tabela `auth.users` do Supabase, permitindo adicionar campos personalizados sem modificar a estrutura de autenticação principal. A relação 1-para-1 é mantida por um trigger, garantindo a consistência dos dados do utilizador.
 
-**Schema**: `public`
+**DDL (SQL):**
+```sql
+CREATE TABLE public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  full_name TEXT,
+  avatar_url TEXT,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
 
-## Relação com `auth.users`
+COMMENT ON TABLE public.profiles IS 'Armazena os dados públicos do perfil de um utilizador. Esta tabela é uma extensão da tabela auth.users do Supabase.';
 
-Um `trigger` na base de dados (`on_auth_user_created`) é responsável por criar uma entrada nesta tabela sempre que um novo utilizador se regista e uma nova entrada é adicionada a `auth.users`. A relação é 1-para-1.
+-- Trigger para garantir que um perfil é criado quando um novo utilizador se regista.
+-- A função handle_new_user() insere um novo registo em public.profiles.
+-- (Ver documentação da função para mais detalhes)
 
-## Colunas
+-- Trigger para atualizar o timestamp `updated_at` em cada atualização.
+CREATE TRIGGER on_profile_updated
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW
+  EXECUTE PROCEDURE moddatetime (updated_at);
+```
 
-| Nome da Coluna | Tipo de Dados | Descrição                                                                 | Constraints                                   |
-| :------------- | :------------ | :------------------------------------------------------------------------ | :-------------------------------------------- |
-| `id`           | `uuid`        | Identificador único do utilizador. Este valor é o mesmo que em `auth.users.id`. | Chave Primária, Chave Estrangeira para `auth.users(id)` |
-| `updated_at`   | `timestamptz` | Carimbo de data/hora da última atualização do perfil.                     | `default: now()`                              |
-| `full_name`    | `text`        | O nome completo do utilizador.                                            | Pode ser `NULL`                               |
-| `avatar_url`   | `text`        | O URL para a imagem de avatar do utilizador.                              | Pode ser `NULL`                               |
-
-## Índices
-
-- `profiles_pkey` (Índice da Chave Primária em `id`)
+**Campos e Restrições:**
+- `id` (UUID, PK, FK): Chave primária que também é uma chave estrangeira para `auth.users(id)`. Garante a relação 1-para-1.
+- `full_name` (TEXT): O nome completo do utilizador.
+- `avatar_url` (TEXT): O URL para a imagem de avatar do utilizador.
+- `updated_at` (TIMESTAMPTZ): Carimbo de data/hora da última atualização do perfil.
 
 ## Políticas de Row Level Security (RLS)
-
-- **`select`**: Qualquer utilizador autenticado pode ver os perfis de outros utilizadores. (Pode ser restringido se a privacidade for uma preocupação maior).
-- **`insert`**: A inserção é controlada por `security definer functions` (o trigger `on_auth_user_created`), não diretamente pelo utilizador.
+- **`select`**: Qualquer utilizador autenticado pode ver os perfis de outros utilizadores.
+- **`insert`**: A inserção é controlada pela função `handle_new_user`, que é chamada por um trigger com `security definer` privileges. Os utilizadores não podem inserir perfis diretamente.
 - **`update`**: Um utilizador só pode atualizar o seu próprio perfil (`auth.uid() = id`).
-- **`delete`**: A remoção é gerida por `CASCADE` a partir da tabela `auth.users`.
+- **`delete`**: A remoção é gerida por `ON DELETE CASCADE` a partir da tabela `auth.users`.
 
-## Triggers
-
-- **`handle_new_user`**: Quando um novo utilizador é criado em `auth.users`, esta função `trigger` cria a entrada correspondente em `public.profiles`.
-- **`update_profile_updated_at`**: Atualiza automaticamente o campo `updated_at` sempre que um registo é modificado.
+## Notas
+- A criação de perfis é automatizada através de um trigger (`handle_new_user`) na tabela `auth.users`.
+- O campo `updated_at` é atualizado automaticamente por um trigger.
+- Esta tabela não armazena informações sensíveis ou de autenticação, apenas dados de perfil públicos.
