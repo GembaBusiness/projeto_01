@@ -36,9 +36,9 @@ COMMENT ON TABLE public.companies IS 'Armazena as informações de cada empresa 
 
 ## Políticas de Row Level Security (RLS)
 - **`select`**: Um utilizador pode ver uma empresa se existir um registo correspondente na tabela `memberships` que o ligue a essa empresa.
-- **`insert`**: Um utilizador pode criar uma nova empresa.
+- **`insert`**: Um utilizador pode criar uma nova empresa se tiver o papel (`role`) de `admin` nessa empresa (verificado através da tabela `memberships`).
 - **`update`**: Um utilizador pode atualizar uma empresa se tiver o papel (`role`) de `admin` nessa empresa (verificado através da tabela `memberships`).
-- **`delete`**: Apenas o `owner` da empresa (ou um super-administrador) pode apagar a empresa.
+- **`delete`**: Uma empresa só pode ser apagada pelo proprietário do sistema.
 
 ## Notas
 - A tabela `companies` é a base do isolamento de dados entre diferentes "tenants".
