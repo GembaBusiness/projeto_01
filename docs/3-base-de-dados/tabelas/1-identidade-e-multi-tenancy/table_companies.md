@@ -1,32 +1,35 @@
 # Tabela: `companies`
 
-Armazena as informações sobre as empresas ou organizações no sistema. Cada empresa funciona como um "tenant" isolado.
+**Finalidade e Justificativa:**
+Armazena as informações sobre as empresas ou organizações no sistema. Cada empresa funciona como um "tenant" isolado, o que é fundamental para a arquitetura multi-tenancy da aplicação. A tabela `companies` é o ponto central para associar utilizadores, departamentos e outros recursos a uma organização específica.
 
-**Schema**: `public`
+**DDL (SQL):**
+```sql
+CREATE TABLE public.companies (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  owner_id UUID NOT NULL REFERENCES public.profiles(id),
+  created_at TIMESTAMptz NOT NULL DEFAULT now()
+);
 
-## Colunas
+COMMENT ON TABLE public.companies IS 'Armazena as informações sobre as empresas ou organizações no sistema. Cada empresa funciona como um "tenant" isolado.';
 
-| Nome da Coluna | Tipo de Dados | Descrição                                                                 | Constraints                                   |
-| :------------- | :------------ | :------------------------------------------------------------------------ | :-------------------------------------------- |
-| `id`           | `uuid`        | Identificador único da empresa.                                           | Chave Primária, `default: uuid_generate_v4()` |
-| `created_at`   | `timestamptz` | Carimbo de data/hora de quando a empresa foi criada.                      | `default: now()`                              |
-| `name`         | `text`        | O nome da empresa.                                                        | `NOT NULL`                                    |
-| `owner_id`     | `uuid`        | O `id` do utilizador que é o proprietário da empresa.                     | Chave Estrangeira para `public.profiles(id)`  |
+-- Índice para a chave estrangeira owner_id para otimizar a busca de empresas por proprietário.
+CREATE INDEX idx_companies_owner_id ON public.companies(owner_id);
+```
 
-## Índices
-
-- `companies_pkey` (Índice da Chave Primária em `id`)
-- `companies_owner_id_fkey` (Índice da Chave Estrangeira em `owner_id`)
+**Campos e Restrições:**
+- `id` (UUID, PK): Chave primária da empresa.
+- `name` (TEXT, NOT NULL): O nome da empresa.
+- `owner_id` (UUID, NOT NULL, FK): Referencia o `id` do utilizador que é o proprietário da empresa na tabela `public.profiles`.
+- `created_at` (TIMESTAMPTZ, NOT NULL): Carimbo de data/hora de quando a empresa foi criada.
 
 ## Políticas de Row Level Security (RLS)
-
-As políticas de RLS nesta tabela são cruciais para garantir que os utilizadores só possam ver e modificar as empresas às quais pertencem.
-
 - **`select`**: Um utilizador pode ver uma empresa se existir um registo correspondente na tabela `memberships` que o ligue a essa empresa.
 - **`insert`**: Um utilizador pode criar uma nova empresa.
 - **`update`**: Um utilizador pode atualizar uma empresa se tiver o papel (`role`) de `admin` nessa empresa (verificado através da tabela `memberships`).
 - **`delete`**: Apenas o `owner` da empresa (ou um super-administrador) pode apagar a empresa.
 
 ## Notas
-
 - A coluna `owner_id` serve para definir uma propriedade clara, mas as permissões do dia-a-dia são geridas pela tabela `memberships` e os papéis (`roles`) definidos nela.
+- A tabela `companies` é a base do isolamento de dados entre diferentes "tenants".
