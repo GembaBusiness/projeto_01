@@ -36,8 +36,8 @@ COMMENT ON TABLE public.profiles IS 'Armazena os dados públicos do perfil do ut
 ## Políticas de Row Level Security (RLS)
 - **`select`**: O utilizador autenticado pode ver seu perfil e utilizador (Adm) pode ver outros utilizadores.
 - **`insert`**: A inserção é dividida em dois momento: 
-  ## Cadastro inicial do utilizador/empresa  controlada pela função `create_company_and_profile`, que é chamada por uma Edge Function `create_company_and_user`
-  ## Cadastro de utilizadores pelo 'Admin'. (Em definição)
+     - Cadastro inicial do utilizador/empresa  controlada pela função `create_company_and_profile`, que é chamada por uma Edge Function `create_company_and_user`
+     - Cadastro de utilizadores pelo 'Admin'. (Em definição)
  Os utilizadores não podem inserir perfis diretamente.
 - **`update`**: Um utilizador só pode atualizar o seu próprio perfil (`auth.uid() = id`).
 - **`delete`**: A remoção é gerida por `ON DELETE CASCADE` a partir da tabela `auth.users`.
