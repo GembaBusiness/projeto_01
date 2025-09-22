@@ -1,9 +1,14 @@
-Documentação Detalhada do Processo de Registo de Empresa e Utilizador
-Introdução
-Este documento oferece uma análise aprofundada do fluxo de registo de uma nova empresa e do seu primeiro utilizador no sistema. O processo foi desenhado para ser robusto, seguro e consistente, dividindo as responsabilidades entre uma Edge Function (orquestradora) e uma Função de Base de Dados (executora da lógica de negócio).
+# Documentação Detalhada do Processo de Registo de Empresa e Utilizador
+
+## Introdução
+
+Este documento oferece uma análise aprofundada do fluxo de registo de uma nova empresa e do seu primeiro utilizador no sistema. O processo foi desenhado para ser robusto, seguro e consistente, dividindo as responsabilidades entre uma **Edge Function** (orquestradora) e uma **Função de Base de Dados** (executora da lógica de negócio).
 
 O fluxograma abaixo apresenta uma visão geral do processo, que será detalhado nos capítulos seguintes.
 
+> **Nota:** O diagrama abaixo é um fluxograma gerado com a sintaxe Mermaid. Em plataformas como o GitHub, ele será renderizado como um gráfico visual.
+
+```mermaid
 graph TD
     A[INÍCIO: Cliente envia POST para a Edge Function] --> B{Edge Function: Recebe a Requisição};
 
@@ -41,25 +46,28 @@ graph TD
         N --> O[FIM: Retorna 400 Bad Request<br/>com a mensagem de erro da DB];
         M -- Sim --> P[FIM: Retorna 201 Created<br/>com a mensagem e dados de sucesso];
     end
+```
 
-Parte 1: A Orquestradora - Edge Function (index.ts)
-1.1 Introdução à Edge Function
+---
+
+## Parte 1: A Orquestradora - Edge Function (`index.ts`)
+
+### 1.1. Introdução à Edge Function
+
 A Edge Function atua como o ponto de entrada da API e a principal orquestradora do fluxo. As suas responsabilidades são:
 
-Receber a requisição do cliente.
+- Receber a requisição do cliente.
+- Validar a formatação e a integridade dos dados de entrada.
+- Gerir a sequência de operações: primeiro a criação do utilizador no serviço de autenticação e depois a criação dos dados da empresa na base de dados.
+- Lidar com erros de forma inteligente, executando ações de compensação (rollback) para manter a consistência dos dados.
+- Formatar e retornar a resposta final (sucesso ou erro) para o cliente.
 
-Validar a formatação e a integridade dos dados de entrada.
+### 1.2. Código-Fonte (`index.ts`)
 
-Gerir a sequência de operações: primeiro a criação do utilizador no serviço de autenticação e depois a criação dos dados da empresa na base de dados.
-
-Lidar com erros de forma inteligente, executando ações de compensação (rollback) para manter a consistência dos dados.
-
-Formatar e retornar a resposta final (sucesso ou erro) para o cliente.
-
-1.2 Código-Fonte (index.ts)
+```typescript
 // Ficheiro: supabase/functions/create_company_and_user/index.ts
-import { serve } from '[https://deno.land/std@0.177.0/http/server.ts](https://deno.land/std@0.177.0/http/server.ts)';
-import { createClient } from '[https://esm.sh/@supabase/supabase-js@2](https://esm.sh/@supabase/supabase-js@2)';
+import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // Define os cabeçalhos CORS
 const corsHeaders = {
@@ -302,52 +310,48 @@ serve(async (req)=>{
     });
   }
 });
+```
 
-1.3 Desenvolvimento: Etapas de Execução (Explicação)
-Receção e Validação de Dados:
+### 1.3. Desenvolvimento: Etapas de Execução (Explicação)
 
-A função é acionada por uma requisição POST. Primeiramente, ela lida com requisições OPTIONS para permitir o Cross-Origin Resource Sharing (CORS).
+- **Receção e Validação de Dados:**
+  - A função é acionada por uma requisição `POST`. Primeiramente, ela lida com requisições `OPTIONS` para permitir o Cross-Origin Resource Sharing (CORS).
+  - Em seguida, extrai os objetos `company_data` e `user_data` do corpo da requisição.
+  - Um bloco de validação robusto verifica cada campo obrigatório (nome da empresa, CNPJ, email, senha, nome completo, telefone), utilizando funções auxiliares como `validateCNPJ` e `validatePhone`.
+  - **Resultado:** Se qualquer dado for inválido ou estiver em falta, a função pára imediatamente e retorna um erro **400 Bad Request**, incluindo uma lista de todos os problemas encontrados para que o cliente possa corrigi-los de uma só vez.
 
-Em seguida, extrai os objetos company_data e user_data do corpo da requisição.
+- **Criação do Utilizador no Supabase Auth:**
+  - Com os dados validados, a primeira operação de escrita é a criação do utilizador no serviço de autenticação da Supabase (`supabaseAdmin.auth.admin.createUser`).
+  - Os metadados do utilizador, como nome completo e telefone, são armazenados diretamente no objeto de autenticação. O email é automaticamente confirmado (`email_confirm: true`).
+  - **Resultado:** Se o email já existir, a Supabase retorna um erro. A Edge Function captura esse erro e responde ao cliente com **409 Conflict**, informando que o email já está em uso. Se a criação for bem-sucedida, o `userId` gerado é guardado para os próximos passos.
 
-Um bloco de validação robusto verifica cada campo obrigatório (nome da empresa, CNPJ, email, senha, nome completo, telefone), utilizando funções auxiliares como validateCNPJ e validatePhone.
+- **Invocação da Lógica de Negócio na Base de Dados:**
+  - Com um utilizador válido criado no Auth, a Edge Function invoca a função `create_company_and_profile` na base de dados via RPC (Remote Procedure Call).
+  - Ela passa todos os dados necessários como parâmetros: `userId`, nome da empresa, CNPJ, nome completo e telefone do utilizador.
 
-Resultado: Se qualquer dado for inválido ou estiver em falta, a função pára imediatamente e retorna um erro 400 Bad Request, incluindo uma lista de todos os problemas encontrados para que o cliente possa corrigi-los de uma só vez.
+- **Tratamento do Resultado e Ação de Compensação:**
+  - Este é o ponto mais crítico da orquestração. A Edge Function aguarda o resultado da RPC.
+  - **Cenário de Falha:** Se a função da base de dados retornar um erro (seja por uma regra de negócio, como CNPJ duplicado, ou um erro técnico), a Edge Function executa uma **ação de compensação**: ela chama `supabaseAdmin.auth.admin.deleteUser(userId)` para apagar o utilizador que tinha acabado de criar. Isto evita "utilizadores órfãos" no sistema de autenticação, que não estão ligados a nenhuma empresa. Após a limpeza, retorna um erro **400 Bad Request** com a mensagem específica vinda da base de dados.
+  - **Cenário de Sucesso:** Se a função da base de dados retornar sucesso, a orquestração está completa.
 
-Criação do Utilizador no Supabase Auth:
+- **Resposta Final:**
+  - Em caso de sucesso total, a função retorna **201 Created** com os IDs da empresa e da associação criadas, confirmando que o processo foi concluído. A função `getUserFriendlyError` garante que todas as mensagens de erro retornadas ao cliente sejam claras e úteis.
 
-Com os dados validados, a primeira operação de escrita é a criação do utilizador no serviço de autenticação da Supabase (supabaseAdmin.auth.admin.createUser).
+### 1.4. Conclusão da Edge Function
 
-Os metadados do utilizador, como nome completo e telefone, são armazenados diretamente no objeto de autenticação. O email é automaticamente confirmado (email_confirm: true).
+A Edge Function implementa o padrão de orquestração conhecido como **Saga**, onde uma sequência de transações é gerida e, em caso de falha, transações de compensação são executadas para reverter as operações já concluídas. Isto garante a consistência entre o serviço de autenticação e a base de dados de negócio.
 
-Resultado: Se o email já existir, a Supabase retorna um erro. A Edge Function captura esse erro e responde ao cliente com 409 Conflict, informando que o email já está em uso. Se a criação for bem-sucedida, o userId gerado é guardado para os próximos passos.
+---
 
-Invocação da Lógica de Negócio na Base de Dados:
+## Parte 2: A Executora - Função de Base de Dados (`create_company_and_profile`)
 
-Com um utilizador válido criado no Auth, a Edge Function invoca a função create_company_and_profile na base de dados via RPC (Remote Procedure Call).
+### 2.1. Introdução à Função de Base de Dados (RPC)
 
-Ela passa todos os dados necessários como parâmetros: userId, nome da empresa, CNPJ, nome completo e telefone do utilizador.
+Esta função, escrita em **PL/pgSQL**, é a guardiã da lógica de negócio e da integridade dos dados. A sua principal responsabilidade é executar todas as operações de escrita na base de dados de forma **atómica**, ou seja, ou todas são bem-sucedidas, ou nenhuma é aplicada.
 
-Tratamento do Resultado e Ação de Compensação:
+### 2.2. Código-Fonte (`create_company_and_profile.sql`)
 
-Este é o ponto mais crítico da orquestração. A Edge Function aguarda o resultado da RPC.
-
-Cenário de Falha: Se a função da base de dados retornar um erro (seja por uma regra de negócio, como CNPJ duplicado, ou um erro técnico), a Edge Function executa uma ação de compensação: ela chama supabaseAdmin.auth.admin.deleteUser(userId) para apagar o utilizador que tinha acabado de criar. Isto evita "utilizadores órfãos" no sistema de autenticação, que não estão ligados a nenhuma empresa. Após a limpeza, retorna um erro 400 Bad Request com a mensagem específica vinda da base de dados.
-
-Cenário de Sucesso: Se a função da base de dados retornar sucesso, a orquestração está completa.
-
-Resposta Final:
-
-Em caso de sucesso total, a função retorna 201 Created com os IDs da empresa e da associação criadas, confirmando que o processo foi concluído. A função getUserFriendlyError garante que todas as mensagens de erro retornadas ao cliente sejam claras e úteis.
-
-1.4 Conclusão da Edge Function
-A Edge Function implementa o padrão de orquestração conhecido como Saga, onde uma sequência de transações é gerida e, em caso de falha, transações de compensação são executadas para reverter as operações já concluídas. Isto garante a consistência entre o serviço de autenticação e a base de dados de negócio.
-
-Parte 2: A Executora - Função de Base de Dados (create_company_and_profile)
-2.1 Introdução à Função de Base de Dados (RPC)
-Esta função, escrita em PL/pgSQL, é a guardiã da lógica de negócio e da integridade dos dados. A sua principal responsabilidade é executar todas as operações de escrita na base de dados de forma atómica, ou seja, ou todas são bem-sucedidas, ou nenhuma é aplicada.
-
-2.2 Código-Fonte (create_company_and_profile.sql)
+```sql
 CREATE OR REPLACE FUNCTION public.create_company_and_profile(
     p_user_id uuid,
     p_company_name text,
@@ -490,39 +494,30 @@ BEGIN
 
 END;
 $function$;
+```
 
-2.3 Desenvolvimento: Etapas de Execução (Explicação)
-Validações de Negócio Prévias:
+### 2.3. Desenvolvimento: Etapas de Execução (Explicação)
 
-Antes de iniciar qualquer escrita, a função realiza validações cruciais:
+- **Validações de Negócio Prévias:**
+  - Antes de iniciar qualquer escrita, a função realiza validações cruciais:
+    - Verifica se um CNPJ já está registado na tabela `companies`.
+    - Verifica se o utilizador (pelo `p_user_id`) já possui um perfil na tabela `profiles`.
+  - **Resultado:** Se qualquer uma destas condições for verdadeira, a função retorna imediatamente um objeto JSON com `success: false` e um `error_code` específico (ex: `COMPANY_EXISTS`, `PROFILE_EXISTS`), sem sequer tentar realizar as inserções.
 
-Verifica se um CNPJ já está registado na tabela companies.
+- **Bloco de Transação Atómica (`BEGIN...EXCEPTION...END`):**
+  - Toda a lógica de inserção é envolvida num bloco transacional.
+  - **Passo 1: Inserir Empresa:** Insere um novo registo na tabela `companies` e captura o `id` gerado.
+  - **Passo 2: Inserir Perfil:** Insere um novo registo na tabela `profiles`, ligando o `id` ao `p_user_id` recebido.
+  - **Passo 3: Criar Vínculo (Membership):** Insere um registo na tabela `memberships`, associando o `user_id` ao `company_id`. O utilizador é definido com acesso a toda a empresa (`has_company_wide_access: true`).
+  - **Passo 4: Atribuir Papel de Administrador:** A função procura o ID do papel de sistema "Admin da Empresa" na tabela `roles` e insere um registo na tabela `membership_roles` para conceder ao novo utilizador os privilégios de administrador.
 
-Verifica se o utilizador (pelo p_user_id) já possui um perfil na tabela profiles.
+- **Tratamento de Exceções (Erros Inesperados):**
+  - O bloco `EXCEPTION` captura erros que podem ocorrer durante as inserções, mesmo após as validações iniciais (por exemplo, em condições de concorrência onde dois utilizadores tentam registar o mesmo CNPJ ao mesmo tempo).
+  - Ele trata especificamente `unique_violation` (retornando `CNPJ_DUPLICATE`) e outros erros, garantindo que a base de dados faça o **rollback automático** da transação e retorne uma mensagem de erro estruturada.
 
-Resultado: Se qualquer uma destas condições for verdadeira, a função retorna imediatamente um objeto JSON com success: false e um error_code específico (ex: COMPANY_EXISTS, PROFILE_EXISTS), sem sequer tentar realizar as inserções.
+- **Retorno de Sucesso:**
+  - Se todas as inserções forem concluídas sem exceções, a função retorna um objeto JSON com `success: true` e os IDs da empresa (`company_id`) e do vínculo (`membership_id`) que foram criados.
 
-Bloco de Transação Atómica (BEGIN...EXCEPTION...END):
+### 2.4. Conclusão da Função de Base de Dados
 
-Toda a lógica de inserção é envolvida num bloco transacional.
-
-Passo 1: Inserir Empresa: Insere um novo registo na tabela companies e captura o id gerado.
-
-Passo 2: Inserir Perfil: Insere um novo registo na tabela profiles, ligando o id ao p_user_id recebido.
-
-Passo 3: Criar Vínculo (Membership): Insere um registo na tabela memberships, associando o user_id ao company_id. O utilizador é definido com acesso a toda a empresa (has_company_wide_access: true).
-
-Passo 4: Atribuir Papel de Administrador: A função procura o ID do papel de sistema "Admin da Empresa" na tabela roles e insere um registo na tabela membership_roles para conceder ao novo utilizador os privilégios de administrador.
-
-Tratamento de Exceções (Erros Inesperados):
-
-O bloco EXCEPTION captura erros que podem ocorrer durante as inserções, mesmo após as validações iniciais (por exemplo, em condições de concorrência onde dois utilizadores tentam registar o mesmo CNPJ ao mesmo tempo).
-
-Ele trata especificamente unique_violation (retornando CNPJ_DUPLICATE) e outros erros, garantindo que a base de dados faça o rollback automático da transação e retorne uma mensagem de erro estruturada.
-
-Retorno de Sucesso:
-
-Se todas as inserções forem concluídas sem exceções, a função retorna um objeto JSON com success: true e os IDs da empresa (company_id) and do vínculo (membership_id) que foram criados.
-
-2.4 Conclusão da Função de Base de Dados
-Esta função garante a consistência e a integridade dos dados ao agrupar todas as operações de negócio numa única transação atómica. Ao lidar com as validações e a lógica de negócio dentro da base de dados, ela cria uma camada de segurança robusta e centralizada.
+Esta função garante a **consistência** e a **integridade** dos dados ao agrupar todas as operações de negócio numa única transação atómica. Ao lidar com as validações e a lógica de negócio dentro da base de dados, ela cria uma camada de segurança robusta e centralizada.
