@@ -23,7 +23,7 @@ graph TD
 
     subgraph "Transação na Base de Dados (create_company_and_profile)"
         F -- Inicia Chamada --> G[4. Início da Transação Atómica];
-        G --> H{5. Validações de Negócio (Ex: CNPJ já registado?)};
+        G --> H{5. Validações de Negócio Ex: CNPJ já registado?};
         H -- Conflito Encontrado --> H_ERR[Retorna objeto de erro<br/>Ex: COMPANY_EXISTS];
         H -- Sem Conflitos --> I[6. Insere dados nas tabelas:<br/>- companies<br/>- profiles<br/>- memberships];
         I -- Erro de Inserção Ex: Violação de Chave Única --> J_EX[7. Bloco EXCEPTION captura o erro SQL];
