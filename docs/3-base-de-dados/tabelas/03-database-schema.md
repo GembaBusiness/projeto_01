@@ -16,7 +16,7 @@ Esta seção detalha o esquema completo da base de dados no Supabase (PostgreSQL
 ### 2.1. Domínio: Identidade e Multi-Tenancy
 
 #### Visão Geral Estratégica
-Este módulo representa a fundação sobre a qual todo o sistema SaaS B-to-B é construído. Ele aborda dois dos desafios mais críticos de uma aplicação deste tipo:
+Este módulo representa a fundação sobre a qual todo o sistema SaaS B2B é construído. Ele aborda dois dos desafios mais críticos de uma aplicação deste tipo:
 
 - **Multi-Tenancy (Multi-Inquilino):** A capacidade de servir múltiplos clientes (empresas) a partir de uma única instância da aplicação, garantindo que os dados de um cliente (tenant) sejam total e inequivocamente isolados dos dados de todos os outros. Este é o pilar da segurança e da privacidade no nosso sistema.
 - **Identidade:** A gestão de quem são os utilizadores, como eles se autenticam e como os seus perfis são representados dentro da aplicação.
