@@ -13,7 +13,7 @@ graph TD
     A[INÍCIO: Cliente envia POST para a Edge Function] --> B{Edge Function: Recebe a Requisição};
 
     subgraph "Orquestração na Edge Function (index.ts)"
-        B --> C{1. Validação dos Dados de Entrada (Formato CNPJ, Email, etc.)};
+        B --> C{1. Validação dos Dados de Entrada Formato CNPJ, Email, etc.};
         C -- Dados Inválidos --> C_FIM[FIM: Retorna 400 Bad Request];
         C -- Dados Válidos --> D[2. Criação do Utilizador no Supabase Auth];
         D --> E{Utilizador criado com sucesso?};
