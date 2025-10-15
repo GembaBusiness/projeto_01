@@ -24,12 +24,12 @@ graph TD
     subgraph "Transação na Base de Dados (create_company_and_profile)"
         F -- Inicia Chamada --> G[4. Início da Transação Atómica];
         G --> H{5. Validações de Negócio (Ex: CNPJ já registado?)};
-        H -- Conflito Encontrado --> H_ERR[Retorna objeto de erro<br/>(Ex: COMPANY_EXISTS)];
+        H -- Conflito Encontrado --> H_ERR[Retorna objeto de erro<br/>Ex: COMPANY_EXISTS];
         H -- Sem Conflitos --> I[6. Insere dados nas tabelas:<br/>- companies<br/>- profiles<br/>- memberships];
-        I -- Erro de Inserção (Ex: Violação de Chave Única) --> J_EX[7. Bloco EXCEPTION captura o erro SQL];
-        J_EX --> J_ERR[Retorna objeto de erro<br/>(Ex: CNPJ_DUPLICATE)];
+        I -- Erro de Inserção Ex: Violação de Chave Única --> J_EX[7. Bloco EXCEPTION captura o erro SQL];
+        J_EX --> J_ERR[Retorna objeto de erro<br/>Ex: CNPJ_DUPLICATE];
         I -- Sucesso --> K[8. Atribui o Papel de 'Admin da Empresa'];
-        K -- Papel não encontrado --> K_ERR[Retorna objeto de erro<br/>(ROLE_NOT_FOUND)];
+        K -- Papel não encontrado --> K_ERR[Retorna objeto de erro<br/>ROLE_NOT_FOUND];
         K -- Sucesso --> L[9. Retorna objeto de sucesso com os IDs gerados];
     end
 
