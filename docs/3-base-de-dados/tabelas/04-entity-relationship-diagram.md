@@ -159,4 +159,28 @@ erDiagram
 
     "auth.users" ||--|{ user_consents : "dá"
     consent_types ||--|{ user_consents : "recebe"
+
+    %% --- 6. Domínio: Logs de Auditoria ---
+    audit_sessions {
+        UUID id PK
+        UUID session_id "Nullable"
+        UUID company_id FK "references companies"
+        UUID user_id FK "references auth.users"
+        TEXT event_type
+        INET ip_address
+    }
+
+    audit_logs {
+        BIGINT id PK
+        UUID company_id FK "references companies"
+        UUID user_id FK "references auth.users"
+        UUID session_id "Nullable"
+        TEXT action
+        TEXT target_entity
+    }
+
+    "auth.users" |o--o{ audit_sessions : "gera"
+    companies |o--o{ audit_sessions : "registra"
+    "auth.users" |o--o{ audit_logs : "executa"
+    companies |o--o{ audit_logs : "registra"
 ```
