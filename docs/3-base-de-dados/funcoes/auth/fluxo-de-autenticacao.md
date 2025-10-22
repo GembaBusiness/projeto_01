@@ -37,16 +37,35 @@ Para alcançar isso, foram tomadas duas decisões de arquitetura cruciais:
 
 O fluxograma abaixo, extraído da implementação no WeWeb, ilustra visualmente o processo completo que ocorre imediatamente após o usuário submeter suas credenciais de login.
 
+```mermaid
+graph TD
+    A[Login] --> B{Verificar empresa selecionada};
+    B --> C[Atualizar variável];
+    C --> D{Tomada de Decisão};
+    D -- true --> E[Ativar a sessão do usuário];
+    D -- false --> F[Navegar para a página Selecionar Tenant];
+    E --> G[Atualizar JWT];
+    G --> H[Criar log];
+    H --> I[Registrar user logado];
+    I --> J[Atualizar menu de navegação];
+    J --> K[Navegar para o HOME];
+    F --> K;
+```
+
 ### 1.3. Detalhamento das Etapas do Fluxo
 
-1.  **Login:** O processo começa com a ação padrão de Sign In do Supabase, onde o usuário é autenticado com email e senha. Um JWT inicial, contendo apenas a identidade do usuário (`user_id`), é gerado.
-2.  **Verificar Empresa:** Imediatamente após o sucesso do login, o workflow invoca a primeira Edge Function, `get-user-memberships`. Esta função verifica no banco de dados a quais empresas o usuário pertence.
-3.  **Atualizar Variável:** O resultado da função (uma lista de empresas) é armazenado em uma variável local no frontend para uso na próxima etapa.
-4.  **Tomada de Decisão:** O sistema verifica o número de empresas retornadas.
-    -   **Caminho `false` (Múltiplas Empresas):** Se o usuário pertencer a mais de uma empresa, ele é redirecionado para uma página de seleção, onde a lista de empresas é exibida para que ele escolha em qual deseja logar.
-    -   **Caminho `true` (Uma Única Empresa):** Se o usuário pertencer a apenas uma empresa, o fluxo segue automaticamente para a próxima etapa.
-5.  **Ativar a Sessão do Usuário:** O sistema invoca a segunda Edge Function, `select-company-session`, passando o `company_id` da empresa selecionada (seja de forma automática ou manual).
-6.  **Atualizar JWT:** Após a segunda função executar com sucesso e atualizar o token no servidor, a ação `Refresh Session` é chamada no frontend para garantir que o cliente (navegador) obtenha o novo JWT, agora contendo o `active_company_id`. A partir daqui, o usuário é redirecionado para o dashboard, com a sessão devidamente segura.
+1.  **Login**: O processo começa com a ação padrão de `Sign In` do Supabase, onde o usuário é autenticado com email e senha. Um JWT inicial, contendo apenas a identidade do usuário (`user_id`), é gerado.
+2.  **Verificar empresa selecionada**: Imediatamente após o sucesso do login, o workflow invoca a primeira Edge Function, `get-user-memberships`. Esta função verifica no banco de dados a quais empresas o usuário pertence.
+3.  **Atualizar variável**: O resultado da função (uma lista de empresas) é armazenado em uma variável local no frontend para uso na próxima etapa.
+4.  **Tomada de Decisão**: O sistema verifica o número de empresas retornadas.
+    - **Caminho `false` (Múltiplas Empresas)**: Se o usuário pertencer a mais de uma empresa, ele é redirecionado para uma página de seleção, onde a lista de empresas é exibida para que ele escolha em qual deseja logar.
+    - **Caminho `true` (Uma Única Empresa)**: Se o usuário pertencer a apenas uma empresa, o fluxo segue automaticamente para a próxima etapa.
+5.  **Ativar a sessão do usuário**: O sistema invoca a segunda Edge Function, `select-company-session`, passando o `company_id` da empresa selecionada (seja de forma automática ou manual).
+6.  **Atualizar JWT**: Após a segunda função executar com sucesso e atualizar o token no servidor, a ação `Refresh Session` é chamada no frontend para garantir que o cliente (navegador) obtenha o novo JWT, agora contendo o `active_company_id`.
+7.  **Criar log**: Uma nova Edge Function é invocada para registrar o evento de login bem-sucedido, garantindo a rastreabilidade e a auditoria das ações do usuário.
+8.  **Registrar user logado**: Um workflow do projeto é acionado para identificar o usuário logado e realizar quaisquer ações de inicialização necessárias.
+9.  **Atualizar menu de navegação**: Os itens do menu de navegação são buscados (`Fetch collection`) para garantir que o usuário veja apenas as opções relevantes para sua função e permissões.
+10. **Navegar para o HOME**: Finalmente, o usuário é redirecionado para a página inicial (`/home`), com a sessão devidamente segura e o contexto da empresa ativo.
 
 ## Bloco 2: Detalhamento da Edge Function get-user-memberships
 
