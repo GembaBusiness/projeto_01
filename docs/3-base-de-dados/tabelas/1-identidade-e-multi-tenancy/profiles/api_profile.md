@@ -16,7 +16,7 @@ CREATE OR REPLACE FUNCTION get_profile_by_user_and_company(p_user_id uuid, p_com
 RETURNS json
 LANGUAGE sql
 SECURITY DEFINER
-SET search_path = public -- Corrige o erro de 'role mutable search_path'
+SET search_path = public
 AS $$
   SELECT json_build_object(
     -- Dados do User (auth.users)
@@ -25,6 +25,7 @@ AS $$
     'id', p.id,
     'full_name', p.full_name,
     'avatar_url', p.avatar_url,
+    'avatar_path', p.avatar_path,
     'job_title', p.job_title,
     'phone_number', p.phone_number,
     -- Dados da Membership (public.memberships)
@@ -38,7 +39,20 @@ AS $$
     'company_id', c.id,
     'company_name', c.name,
     'company_logo_url', c.logo_url,
-    'company_status', c.status
+    'company_status', c.status,
+    -- Contagens de Auditoria
+   'audit_sessions_count', (
+  SELECT COUNT(*)
+  FROM public.audit_sessions
+  WHERE user_id = p_user_id
+    AND company_id = p_company_id
+    AND event_type = 'LOGIN_SUCCESS'
+),
+    'audit_logs_count', (
+      SELECT COUNT(*)
+      FROM public.audit_logs
+      WHERE user_id = p_user_id AND company_id = p_company_id
+    )
   )
   FROM
     public.memberships AS m
@@ -48,7 +62,7 @@ AS $$
     auth.users AS u ON p.id = u.id
   JOIN
     public.companies AS c ON m.company_id = c.id
-  LEFT JOIN -- LEFT JOIN é usado caso o usuário não tenha um departamento atribuído
+  LEFT JOIN
     public.departments AS d ON m.department_id = d.id
   WHERE
     m.user_id = p_user_id AND m.company_id = p_company_id;
