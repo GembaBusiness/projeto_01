@@ -158,54 +158,103 @@ Finalmente, a segurança é reforçada ao fixar o `search_path`, garantindo que 
 
 ```sql
 -- Remove a função antiga se ela existir
-DROP FUNCTION IF EXISTS custom_auth_helpers.has_permission(text);
+--DROP FUNCTION IF EXISTS custom_auth_helpers.has_permission(text);
 
--- Cria a nova versão da função com a lógica de busca de permissões corrigida
+-- Cria a versão corrigida e otimizada da função
 CREATE OR REPLACE FUNCTION custom_auth_helpers.has_permission(permission_name text)
 RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
+-- ✅ CRÍTICO: Ordem correta do search_path (mais específico para menos específico)
+-- Isso previne ataques de "Trojan Horse" onde alguém poderia criar objetos maliciosos
+SET search_path = public, custom_auth_helpers, auth
 AS $$
 DECLARE
-  user_id_value uuid := auth.uid();
-  company_id_value uuid := custom_auth_helpers.current_company_id();
+  user_id_value uuid;
+  company_id_value uuid;
   cached_permissions_json jsonb;
   has_perm boolean;
 BEGIN
+  -- ✅ VALIDAÇÃO 1: Sanitiza a entrada para prevenir SQL injection
+  -- Permite apenas letras, números, underscores e pontos (formato: "resource.action")
+  IF permission_name IS NULL OR permission_name !~ '^[a-zA-Z0-9_\.]+$' THEN
+    RAISE WARNING 'Invalid permission name format: %', permission_name;
+    RETURN false;
+  END IF;
+
+  -- ✅ VALIDAÇÃO 2: Obtém e valida o user_id
+  user_id_value := auth.uid();
+  IF user_id_value IS NULL THEN
+    RETURN false;  -- Usuário não autenticado
+  END IF;
+
+  -- ✅ VALIDAÇÃO 3: Obtém e valida o company_id
+  company_id_value := custom_auth_helpers.current_company_id();
+  IF company_id_value IS NULL THEN
+    RETURN false;  -- Sem empresa ativa ou inválida
+  END IF;
+
   -- 1. Tenta obter as permissões do cache da sessão
-  cached_permissions_json := current_setting('my_app.user_permissions', true)::jsonb;
+  BEGIN
+    cached_permissions_json := current_setting('my_app.user_permissions', true)::jsonb;
+  EXCEPTION
+    WHEN OTHERS THEN
+      cached_permissions_json := NULL;
+  END;
 
   -- 2. Se o cache não existir, busca as permissões no banco de dados
   IF cached_permissions_json IS NULL THEN
+    -- ✅ Usa schemas explícitos para máxima segurança
     SELECT jsonb_agg(p.name)
     INTO cached_permissions_json
     FROM public.memberships m
     -- Junta com a tabela de ligação 'membership_roles' para encontrar os papéis do membro
-    JOIN public.membership_roles mr ON mr.membership_id = m.id
+    INNER JOIN public.membership_roles mr ON mr.membership_id = m.id
     -- Junta com a tabela de ligação 'role_permissions' para encontrar as permissões dos papéis
-    JOIN public.role_permissions rp ON rp.role_id = mr.role_id
+    INNER JOIN public.role_permissions rp ON rp.role_id = mr.role_id
     -- Junta com a tabela 'permissions' para obter o nome da permissão
-    JOIN public.permissions p ON p.id = rp.permission_id
-    -- Filtra para encontrar o 'membership' específico do utilizador na empresa ativa
-    WHERE m.user_id = user_id_value AND m.company_id = company_id_value;
+    INNER JOIN public.permissions p ON p.id = rp.permission_id
+    -- ✅ CRÍTICO: Filtra pelo usuário E empresa para garantir isolamento multi-tenant
+    WHERE m.user_id = user_id_value 
+      AND m.company_id = company_id_value
+      AND p.name IS NOT NULL;  -- Garante que não há permissões NULL
 
-    -- Se o utilizador não tiver permissões, define como um array JSON vazio para evitar buscas futuras
+    -- Se o utilizador não tiver permissões, define como um array JSON vazio
     cached_permissions_json := COALESCE(cached_permissions_json, '[]'::jsonb);
 
     -- 3. Armazena as permissões no cache da sessão para futuras chamadas
-    PERFORM set_config('my_app.user_permissions', cached_permissions_json::text, false);
+    -- ✅ Usa bloco BEGIN/END para capturar erros de set_config
+    BEGIN
+      PERFORM set_config('my_app.user_permissions', cached_permissions_json::text, false);
+    EXCEPTION
+      WHEN OTHERS THEN
+        -- Se falhar ao cachear, continua sem erro (degrada gracefully)
+        NULL;
+    END;
   END IF;
 
   -- 4. Verifica se a permissão desejada existe no cache
   has_perm := cached_permissions_json ? permission_name;
 
-  RETURN has_perm;
+  RETURN COALESCE(has_perm, false);
+
+EXCEPTION
+  WHEN OTHERS THEN
+    -- ✅ Em caso de erro inesperado, nega acesso (fail-safe)
+    RAISE WARNING 'Error checking permission %: %', permission_name, SQLERRM;
+    RETURN false;
 END;
 $$;
 
--- Garante que a função não pode ser chamada por qualquer pessoa
+-- ✅ IMPORTANTE: Comentário de segurança para documentação
+COMMENT ON FUNCTION custom_auth_helpers.has_permission(text) IS 
+'Verifica se o usuário atual possui uma permissão específica.
+SECURITY DEFINER: Executa com privilégios do dono para acessar todas as tabelas.
+PROTEÇÕES: search_path fixo, validação de entrada, tratamento de erros.
+CACHE: Armazena permissões na sessão para otimização.';
+
+-- ✅ Segurança de acesso
 REVOKE ALL ON FUNCTION custom_auth_helpers.has_permission(text) FROM public;
--- Permite que o role 'authenticated' (utilizadores logados) a utilize
 GRANT EXECUTE ON FUNCTION custom_auth_helpers.has_permission(text) TO authenticated;
 ```
 
