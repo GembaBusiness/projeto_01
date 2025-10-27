@@ -63,7 +63,7 @@ graph TD
 5.  **Ativar a sessão do usuário**: O sistema invoca a segunda Edge Function, `select-company-session`, passando o `company_id` da empresa selecionada (seja de forma automática ou manual).
 6.  **Atualizar JWT**: Após a segunda função executar com sucesso e atualizar o token no servidor, a ação `Refresh Session` é chamada no frontend para garantir que o cliente (navegador) obtenha o novo JWT, agora contendo o `active_company_id`.
 7.  **Criar log**: Uma nova Edge Function é invocada para registrar o evento de login bem-sucedido, garantindo a rastreabilidade e a auditoria das ações do usuário.
-8.  **Registrar user logado**: Um workflow do projeto é acionado para identificar o usuário logado e realizar quaisquer ações de inicialização necessárias.
+8.  **Registrar user logado**: Um workflow do projeto é acionado para identificar o usuário logado e realizar quaisquer ações de inicialização necessárias.- [Ver detalhes da função `get_profile_by_user_and_company`](/docs/3-base-de-dados/tabelas/1-identidade-e-multi-tenancy/table_companies.md)
 9.  **Atualizar menu de navegação**: Os itens do menu de navegação são buscados (`Fetch collection`) para garantir que o usuário veja apenas as opções relevantes para sua função e permissões.
 10. **Navegar para o HOME**: Finalmente, o usuário é redirecionado para a página inicial (`/home`), com a sessão devidamente segura e o contexto da empresa ativo.
 
