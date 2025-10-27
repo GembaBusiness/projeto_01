@@ -39,17 +39,45 @@ O fluxograma abaixo, extraído da implementação no WeWeb, ilustra visualmente 
 
 ```mermaid
 graph TD
-    A[Login] --> B{Verificar empresa selecionada};
-    B --> C[Atualizar variável];
-    C --> D{Tomada de Decisão};
-    D -- true --> E[Ativar a sessão do usuário];
-    D -- false --> F[Navegar para a página Selecionar Tenant];
-    E --> G[Atualizar JWT];
-    G --> H[Criar log];
-    H --> I[Registrar user logado];
-    I --> J[Atualizar menu de navegação];
-    J --> K[Navegar para o HOME];
-    F --> K;
+    Start([Início do Fluxo]) --> A[Login<br/>Sign In | Email and Password]
+    
+    A --> B{Verificar empresa selecionada<br/>Edge Function}
+    
+    B --> C[ListCompaniesUserLog<br/>Change variable - ListCompaniesUserLog]
+    
+    C --> D{Tomada de Decisão<br/>Empresa selecionada?}
+    
+    D -->|true<br/>Empresa já selecionada| E[Ativar a sessão do usuário<br/>Edge Function]
+    
+    D -->|false<br/>Nenhuma empresa| F[Navegar para Selecionar Tenant<br/>Navigate to: Selecionar Tenant]
+    
+    E --> G[Atualizar JWT<br/>Refresh session]
+    
+    G --> H[Criar log<br/>Edge Function]
+    
+    H --> I[Registrar user logado<br/>Project workflow:<br/>Identificar user logado]
+    
+    I --> J[Atualizar menu de navegação<br/>Project workflow:<br/>Atualizar sidebar]
+    
+    J --> K[Navegar para o HOME<br/>Navigate to: Home]
+    
+    F --> K
+    
+    K --> End([Fim do Fluxo])
+    
+    style A fill:#4a90e2,stroke:#2e5c8a,color:#fff,stroke-width:3px
+    style B fill:#f39c12,stroke:#d68910,color:#fff,stroke-width:3px
+    style C fill:#1abc9c,stroke:#16a085,color:#fff,stroke-width:3px
+    style D fill:#e74c3c,stroke:#c0392b,color:#fff,stroke-width:3px
+    style E fill:#27ae60,stroke:#1e8449,color:#fff,stroke-width:3px
+    style F fill:#9b59b6,stroke:#7d3c98,color:#fff,stroke-width:3px
+    style G fill:#16a085,stroke:#138d75,color:#fff,stroke-width:3px
+    style H fill:#27ae60,stroke:#1e8449,color:#fff,stroke-width:3px
+    style I fill:#3498db,stroke:#2874a6,color:#fff,stroke-width:3px
+    style J fill:#3498db,stroke:#2874a6,color:#fff,stroke-width:3px
+    style K fill:#9b59b6,stroke:#7d3c98,color:#fff,stroke-width:3px
+    style Start fill:#95a5a6,stroke:#7f8c8d,color:#fff,stroke-width:3px
+    style End fill:#95a5a6,stroke:#7f8c8d,color:#fff,stroke-width:3px
 ```
 
 ### 1.3. Detalhamento das Etapas do Fluxo
