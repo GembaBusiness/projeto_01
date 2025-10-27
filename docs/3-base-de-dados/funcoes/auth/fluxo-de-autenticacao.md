@@ -39,11 +39,11 @@ O fluxograma abaixo, extraído da implementação no WeWeb, ilustra visualmente 
 
 ```mermaid
 graph TD
-    Start([Início do Fluxo]) --> A[Login<br/>Sign In | Email and Password]
+    Start([Início do Fluxo]) --> A[Login<br/>Sign In - Email and Password]
     
     A --> B{Verificar empresa selecionada<br/>Edge Function}
     
-    B --> C[ListCompaniesUserLog<br/>Change variable - ListCompaniesUserLog]
+    B --> C[ListCompaniesUserLog<br/>Change variable]
     
     C --> D{Tomada de Decisão<br/>Empresa selecionada?}
     
@@ -55,9 +55,9 @@ graph TD
     
     G --> H[Criar log<br/>Edge Function]
     
-    H --> I[Registrar user logado<br/>Project workflow:<br/>Identificar user logado]
+    H --> I[Registrar user logado<br/>Project workflow<br/>Identificar user logado]
     
-    I --> J[Atualizar menu de navegação<br/>Project workflow:<br/>Atualizar sidebar]
+    I --> J[Atualizar menu de navegação<br/>Project workflow<br/>Atualizar sidebar]
     
     J --> K[Navegar para o HOME<br/>Navigate to: Home]
     
