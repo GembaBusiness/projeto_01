@@ -627,119 +627,198 @@ Essa abordagem desacopla a lógica de auditoria do fluxo principal de autentica�
 
 ```typescript
 // supabase/functions/audit-auth-events/index.ts
+// Edge Function com session_id dinâmico para LOGIN_SUCCESS/LOGOUT e null para LOGIN_FAILED
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 };
-
-const VALID_EVENT_TYPES = ['LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT'];
-
+const VALID_EVENT_TYPES = [
+  'LOGIN_SUCCESS',
+  'LOGIN_FAILED',
+  'LOGOUT',
+  'CHANGE_PASSWORD',
+  'FORGOT_PASSWORD'
+];
 // Função para decodificar JWT
 function decodeJWT(token) {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) throw new Error('Invalid JWT format');
     return JSON.parse(atob(parts[1]));
-  } catch {
+  } catch  {
     return null;
   }
 }
-
 // Função para capturar session_id
 async function getSessionId(token, userId, supabase) {
   try {
     const payload = decodeJWT(token);
     if (payload?.session_id) return payload.session_id;
-  } catch {}
-
+  } catch  {}
   try {
-    const { data } = await supabase.from('sessions').select('id').eq('user_id', userId).order('created_at', { ascending: false }).limit(1);
+    const { data } = await supabase.from('sessions').select('id').eq('user_id', userId).order('created_at', {
+      ascending: false
+    }).limit(1);
     if (data?.length) return data[0].id;
-  } catch {}
-
+  } catch  {}
   try {
     const jwtPayload = decodeJWT(token);
     if (jwtPayload?.sub && jwtPayload?.iat) {
       const sessionId = btoa(`${jwtPayload.sub}_${jwtPayload.iat}`).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
       return sessionId;
     }
-  } catch {}
-
+  } catch  {}
   return null;
 }
-
 // Função para anonimizar IP
 function anonymizeIP(ip) {
   if (!ip) return null;
-  if (ip.includes('.')) return ip.split('.').slice(0, 3).join('.') + '.0'; // IPv4
-  if (ip.includes(':')) return ip.split(':').slice(0, 4).join(':') + '::'; // IPv6
+  if (ip.includes('.')) return ip.split('.').slice(0, 3).join('.') + '.0';
+  if (ip.includes(':')) return ip.split(':').slice(0, 4).join(':') + '::';
   return ip;
 }
-
+// Função para obter geolocalização
+async function getGeolocation(req, fullIP) {
+  try {
+    // Tenta primeiro com headers do Cloudflare (mais rápido)
+    const cfCountry = req.headers.get('cf-ipcountry');
+    const cfCity = req.headers.get('cf-ipcity');
+    const cfRegion = req.headers.get('cf-region');
+    const cfTimezone = req.headers.get('cf-timezone');
+    const cfLatitude = req.headers.get('cf-latitude');
+    const cfLongitude = req.headers.get('cf-longitude');
+    // Se tiver dados do Cloudflare, usa eles
+    if (cfCountry && cfCountry !== 'XX') {
+      return {
+        country: cfCountry,
+        country_name: null,
+        city: cfCity || null,
+        region: cfRegion || null,
+        latitude: cfLatitude ? parseFloat(cfLatitude) : null,
+        longitude: cfLongitude ? parseFloat(cfLongitude) : null,
+        timezone: cfTimezone || null,
+        source: 'cloudflare'
+      };
+    }
+    // Fallback: usa API externa se não tiver headers do Cloudflare
+    if (!fullIP) return null;
+    const response = await fetch(`http://ip-api.com/json/${fullIP}?fields=status,country,countryCode,region,regionName,city,lat,lon,timezone`, {
+      signal: AbortSignal.timeout(3000) // Timeout de 3 segundos
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data.status !== 'success') return null;
+    return {
+      country: data.countryCode,
+      country_name: data.country,
+      city: data.city || null,
+      region: data.regionName || null,
+      latitude: data.lat || null,
+      longitude: data.lon || null,
+      timezone: data.timezone || null,
+      source: 'ip-api'
+    };
+  } catch (error) {
+    // Se falhar, retorna null (não bloqueia o registro do log)
+    console.error('Erro ao obter geolocalização:', error);
+    return null;
+  }
+}
 // Handler principal
-Deno.serve(async (req) => {
+Deno.serve(async (req)=>{
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', {
+      headers: corsHeaders
+    });
   }
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Método não permitido' }), { status: 405, headers: corsHeaders });
+    return new Response(JSON.stringify({
+      error: 'Método não permitido'
+    }), {
+      status: 405,
+      headers: corsHeaders
+    });
   }
-
   try {
     const payload = await req.json();
     const eventType = payload.event_type;
-
     if (!VALID_EVENT_TYPES.includes(eventType)) {
-      return new Response(JSON.stringify({ error: 'Tipo de evento inválido' }), { status: 400, headers: corsHeaders });
+      return new Response(JSON.stringify({
+        error: 'Tipo de evento inválido'
+      }), {
+        status: 400,
+        headers: corsHeaders
+      });
     }
-
     const supabase = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
-
     let sessionId = null;
     let userId = null;
     let companyId = null;
-
-    // Para LOGIN_SUCCESS e LOGOUT, precisamos autenticar e capturar dados da sessão
-    if (eventType === 'LOGIN_SUCCESS' || eventType === 'LOGOUT') {
+    // Para LOGIN_SUCCESS, LOGOUT, CHANGE_PASSWORD e FORGOT_PASSWORD, precisamos autenticar e capturar dados da sessão
+    if (eventType === 'LOGIN_SUCCESS' || eventType === 'LOGOUT' || eventType === 'CHANGE_PASSWORD' || eventType === 'FORGOT_PASSWORD') {
       const authHeader = req.headers.get('Authorization');
       if (!authHeader?.startsWith('Bearer ')) {
-        return new Response(JSON.stringify({ error: 'Token JWT ausente' }), { status: 401, headers: corsHeaders });
+        return new Response(JSON.stringify({
+          error: 'Token JWT ausente'
+        }), {
+          status: 401,
+          headers: corsHeaders
+        });
       }
       const token = authHeader.substring(7);
       const { data: { user }, error } = await supabase.auth.getUser(token);
       if (error || !user) {
-        return new Response(JSON.stringify({ error: 'Usuário não autenticado' }), { status: 403, headers: corsHeaders });
+        return new Response(JSON.stringify({
+          error: 'Usuário não autenticado'
+        }), {
+          status: 403,
+          headers: corsHeaders
+        });
       }
       userId = user.id;
       companyId = user.app_metadata?.active_company_id || null;
       sessionId = await getSessionId(token, userId, supabase);
     }
-
-    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('cf-connecting-ip') || req.headers.get('x-real-ip') || null;
+    // Captura IP completo (antes de anonimizar) para geolocalização
+    const fullIP = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('cf-connecting-ip') || req.headers.get('x-real-ip') || null;
     const userAgent = req.headers.get('user-agent') || null;
-
+    // Obtém geolocalização (não bloqueia se falhar)
+    const geolocation = await getGeolocation(req, fullIP);
     const auditLog = {
-      session_id: (eventType === 'LOGIN_SUCCESS' || eventType === 'LOGOUT') ? sessionId : null,
-      user_id: (eventType === 'LOGIN_SUCCESS' || eventType === 'LOGOUT') ? userId : null,
-      company_id: (eventType === 'LOGIN_SUCCESS' || eventType === 'LOGOUT') ? companyId : null,
+      session_id: eventType === 'LOGIN_SUCCESS' || eventType === 'LOGOUT' || eventType === 'CHANGE_PASSWORD' || eventType === 'FORGOT_PASSWORD' ? sessionId : null,
+      user_id: eventType === 'LOGIN_SUCCESS' || eventType === 'LOGOUT' || eventType === 'CHANGE_PASSWORD' || eventType === 'FORGOT_PASSWORD' ? userId : null,
+      company_id: eventType === 'LOGIN_SUCCESS' || eventType === 'LOGOUT' || eventType === 'CHANGE_PASSWORD' || eventType === 'FORGOT_PASSWORD' ? companyId : null,
       event_type: eventType,
-      ip_address: anonymizeIP(ip),
+      ip_address: anonymizeIP(fullIP),
       user_agent: userAgent,
-      payload: { raw: payload },
-      severity: eventType === 'LOGIN_FAILED' ? 'WARNING' : 'INFO',
+      geolocation: geolocation,
+      payload: {
+        raw: payload
+      },
+      severity: eventType === 'LOGIN_FAILED' ? 'WARNING' : 'INFO'
     };
-
     const { error: insertError } = await supabase.from('audit_sessions').insert(auditLog);
     if (insertError) throw insertError;
-
-    return new Response(JSON.stringify({ success: true }), { status: 200, headers: corsHeaders });
+    return new Response(JSON.stringify({
+      success: true,
+      geolocation_captured: geolocation !== null
+    }), {
+      status: 200,
+      headers: corsHeaders
+    });
   } catch (err) {
-    return new Response(JSON.stringify({ error: 'Erro interno', details: err.message }), { status: 500, headers: corsHeaders });
+    return new Response(JSON.stringify({
+      error: 'Erro interno',
+      details: err.message
+    }), {
+      status: 500,
+      headers: corsHeaders
+    });
   }
 });
+
 ```
 
 ### Conclusão da Fase 6
