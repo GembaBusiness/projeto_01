@@ -5,11 +5,19 @@
 
 **DDL (SQL):**
 ```sql
-CREATE TABLE public.permissions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL UNIQUE,
-  description TEXT
-);
+create table public.permissions (
+  id uuid not null default gen_random_uuid (),
+  name text not null,
+  description text null,
+  tabela text null,
+  acao text null,
+  constraint permissions_pkey primary key (id),
+  constraint permissions_name_key unique (name)
+) TABLESPACE pg_default;
+
+create index IF not exists idx_permissions_tabela on public.permissions using btree (tabela) TABLESPACE pg_default;
+
+create index IF not exists idx_permissions_acao on public.permissions using btree (acao) TABLESPACE pg_default;
 ```
 
 **Campos e Restrições:**
