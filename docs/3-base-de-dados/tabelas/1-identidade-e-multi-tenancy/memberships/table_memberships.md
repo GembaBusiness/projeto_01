@@ -10,26 +10,30 @@ CREATE TYPE public.membership_status AS ENUM ('active', 'pending_invite');
 CREATE TABLE public.memberships (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  profile_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   company_id UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
   department_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
   has_company_wide_access BOOLEAN NOT NULL DEFAULT false,
   status public.membership_status NOT NULL DEFAULT 'active',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   deleted_at TIMESTAMPTZ,
-  UNIQUE(user_id, company_id)
+  UNIQUE(user_id, company_id),
+  CONSTRAINT chk_memberships_profile_user_sync CHECK (profile_id = user_id)
 );
 
 COMMENT ON TABLE public.memberships IS 'Tabela de associação entre utilizadores e empresas, indicando também o departamento do membro.';
 
 -- Índices para otimizar buscas por usuário, empresa ou departamento.
 CREATE INDEX idx_memberships_user_id ON public.memberships(user_id);
+CREATE INDEX idx_memberships_profile_id ON public.memberships(profile_id);
 CREATE INDEX idx_memberships_company_id ON public.memberships(company_id);
 CREATE INDEX idx_memberships_department_id ON public.memberships(department_id);
 ```
 
 **Campos e Restrições:**
 -   `id` (UUID, PK): Chave primária do vínculo.
--   `user_id` (UUID, NOT NULL, FK): Referencia o utilizador.
+-   `user_id` (UUID, NOT NULL, FK): Referencia o utilizador em `auth.users`.
+-   `profile_id` (UUID, NOT NULL, FK): Referencia direta ao perfil do utilizador em `public.profiles`. **Desnormalização estratégica** para permitir JOINs diretos com a tabela `profiles` sem necessidade de passar por `auth.users`, simplificando queries e eliminando a necessidade de funções `SECURITY DEFINER` para acesso a dados de perfil. Um trigger automático mantém `profile_id` sincronizado com `user_id`, e uma constraint `CHECK` garante integridade.
 -   `company_id` (UUID, NOT NULL, FK): Referencia a empresa.
 -   `department_id` (UUID, FK): Referencia o departamento do membro. É `NULLABLE` para permitir membros sem departamento definido. `ON DELETE SET NULL` garante que se um departamento for apagado, o membro não é removido da empresa.
 -   `has_company_wide_access` (BOOLEAN, NOT NULL): Um atributo que, se `true`, concede ao membro acesso a todos os departamentos da empresa, ignorando as regras de acesso baseadas no `department_id`.
@@ -130,5 +134,48 @@ WITH CHECK (
 -   **`INSERT`**: A inserção de novos membros é controlada por funções de segurança, geralmente acessíveis apenas a administradores com a permissão `memberships.create`.
 -   **`DELETE`**: A remoção de membros é igualmente controlada por funções de segurança, exigindo a permissão `memberships.delete`.
 
-## Notas
+## Notas Importantes
+
+### Sobre `profile_id` (Desnormalização Estratégica)
+
+A coluna `profile_id` foi adicionada para resolver um problema prático de acesso a dados:
+
+**Problema Original:**
+- `memberships.user_id` → `auth.users(id)` → `profiles(id)`
+- Queries precisavam de JOIN com `auth.users`, que é protegida
+- Requeria funções `SECURITY DEFINER` para todo acesso a dados de perfil
+
+**Solução:**
+- `memberships.profile_id` → `profiles(id)` (acesso direto)
+- Permite queries simples sem `SECURITY DEFINER`
+- Mantém sincronização automática via trigger
+
+**Exemplo de query simplificada:**
+```sql
+-- ANTES: Não funcionava sem SECURITY DEFINER
+SELECT m.*, p.full_name, p.avatar_url, u.email
+FROM memberships m
+JOIN profiles p ON p.id = m.user_id  -- user_id aponta para auth.users
+JOIN auth.users u ON u.id = m.user_id -- Acesso negado por RLS!
+WHERE m.company_id = 'xxx';
+
+-- DEPOIS: Funciona direto (email ainda requer SECURITY DEFINER)
+SELECT m.*, p.full_name, p.avatar_url, p.job_title
+FROM memberships m
+JOIN profiles p ON p.id = m.profile_id  -- Acesso direto!
+WHERE m.company_id = 'xxx';
+```
+
+**Garantias de Integridade:**
+1. **Trigger `trg_sync_membership_profile_id`:** Sincroniza automaticamente `profile_id = user_id` em INSERT/UPDATE
+2. **Constraint `chk_memberships_profile_user_sync`:** Valida que `profile_id = user_id` sempre
+3. **Foreign Keys:** Ambos `user_id` e `profile_id` têm `ON DELETE CASCADE`
+
+**Quando usar cada campo:**
+- Use `user_id` para: operações de autenticação, audit logs, referências em outras tabelas
+- Use `profile_id` para: JOINs com profiles, buscar dados de perfil do usuário
+
+---
+
+### Segurança Multi-tenant
 - Esta tabela é a "fonte da verdade" para o acesso à empresa e é fundamental para a segurança multi-tenant.
