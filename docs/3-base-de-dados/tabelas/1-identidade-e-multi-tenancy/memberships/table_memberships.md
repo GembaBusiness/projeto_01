@@ -7,27 +7,39 @@ Esta é uma das tabelas mais importantes do sistema. Modela a relação entre `u
 ```sql
 CREATE TYPE public.membership_status AS ENUM ('active', 'pending_invite');
 
-CREATE TABLE public.memberships (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  profile_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  company_id UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
-  department_id UUID REFERENCES public.departments(id) ON DELETE SET NULL,
-  has_company_wide_access BOOLEAN NOT NULL DEFAULT false,
-  status public.membership_status NOT NULL DEFAULT 'active',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  deleted_at TIMESTAMPTZ,
-  UNIQUE(user_id, company_id),
-  CONSTRAINT chk_memberships_profile_user_sync CHECK (profile_id = user_id)
-);
+create table public.memberships (
+  id uuid not null default gen_random_uuid (),
+  user_id uuid not null,
+  company_id uuid not null,
+  status public.membership_status not null default 'active'::membership_status,
+  created_at timestamp with time zone not null default now(),
+  deleted_at timestamp with time zone null,
+  department_id uuid null,
+  has_company_wide_access boolean not null default false,
+  profile_id uuid not null,
+  constraint memberships_pkey primary key (id),
+  constraint memberships_user_id_company_id_key unique (user_id, company_id),
+  constraint memberships_company_id_fkey foreign KEY (company_id) references companies (id) on delete CASCADE,
+  constraint memberships_department_id_fkey foreign KEY (department_id) references departments (id) on delete set null,
+  constraint memberships_profile_id_fkey foreign KEY (profile_id) references profiles (id) on update CASCADE on delete set null,
+  constraint memberships_user_id_fkey foreign KEY (user_id) references auth.users (id) on delete CASCADE,
+  constraint chk_memberships_profile_user_sync check ((profile_id = user_id))
+) TABLESPACE pg_default;
 
-COMMENT ON TABLE public.memberships IS 'Tabela de associação entre utilizadores e empresas, indicando também o departamento do membro.';
+create index IF not exists idx_memberships_company_id on public.memberships using btree (company_id) TABLESPACE pg_default;
 
--- Índices para otimizar buscas por usuário, empresa ou departamento.
-CREATE INDEX idx_memberships_user_id ON public.memberships(user_id);
-CREATE INDEX idx_memberships_profile_id ON public.memberships(profile_id);
-CREATE INDEX idx_memberships_company_id ON public.memberships(company_id);
-CREATE INDEX idx_memberships_department_id ON public.memberships(department_id);
+create index IF not exists idx_memberships_department_id on public.memberships using btree (department_id) TABLESPACE pg_default;
+
+create index IF not exists idx_memberships_user_id on public.memberships using btree (user_id) TABLESPACE pg_default;
+
+create index IF not exists idx_memberships_user_company on public.memberships using btree (user_id, company_id) TABLESPACE pg_default;
+
+create trigger memberships_audit_trigger
+after INSERT
+or DELETE
+or
+update on memberships for EACH row
+execute FUNCTION log_audit_trail ();
 ```
 
 **Campos e Restrições:**
