@@ -66,15 +66,14 @@ A Edge Function atua como o ponto de entrada da API e a principal orquestradora 
 
 ```typescript
 // Ficheiro: supabase/functions/create_company_and_user/index.ts
+// VERSÃO ATUALIZADA - Com suporte a profile_id e email na tabela profiles
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
 // Define os cabeçalhos CORS
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
 };
-
 // Função auxiliar para validar CNPJ (formato básico)
 function validateCNPJ(cnpj) {
   // Remove caracteres não numéricos
@@ -89,7 +88,6 @@ function validateCNPJ(cnpj) {
   }
   return true;
 }
-
 // Função auxiliar para validar telefone
 function validatePhone(phone) {
   // Remove caracteres não numéricos
@@ -97,7 +95,6 @@ function validatePhone(phone) {
   // Verifica se tem entre 10 e 11 dígitos (com DDD)
   return cleanPhone.length >= 10 && cleanPhone.length <= 11;
 }
-
 // Função auxiliar para formatar mensagens de erro para o usuário
 function getUserFriendlyError(errorCode, defaultMessage) {
   const errorMessages = {
@@ -117,7 +114,6 @@ function getUserFriendlyError(errorCode, defaultMessage) {
   };
   return errorMessages[errorCode] || defaultMessage;
 }
-
 serve(async (req)=>{
   // Trata requisições OPTIONS para CORS
   if (req.method === 'OPTIONS') {
@@ -131,12 +127,14 @@ serve(async (req)=>{
     const { company_data, user_data } = requestData;
     // Validações detalhadas
     const validationErrors = [];
+    // Verificar se os objetos principais existem
     if (!company_data) {
       validationErrors.push('Dados da empresa são obrigatórios');
     }
     if (!user_data) {
       validationErrors.push('Dados do usuário são obrigatórios');
     }
+    // Se os objetos principais não existem, retorna erro imediatamente
     if (!company_data || !user_data) {
       return new Response(JSON.stringify({
         error: 'Dados inválidos',
@@ -151,35 +149,42 @@ serve(async (req)=>{
         }
       });
     }
-
+    // Agora valida os campos individuais (sabemos que company_data e user_data existem)
+    // Validar nome da empresa
     if (!company_data.name || String(company_data.name).trim() === '') {
       validationErrors.push('Nome da empresa é obrigatório');
     }
+    // Validar CNPJ
     if (!company_data.cnpj || String(company_data.cnpj).trim() === '') {
       validationErrors.push('CNPJ é obrigatório');
     } else if (!validateCNPJ(String(company_data.cnpj))) {
       validationErrors.push('CNPJ inválido. Use o formato XX.XXX.XXX/XXXX-XX');
     }
+    // Validar email
     if (!user_data.email || String(user_data.email).trim() === '') {
       validationErrors.push('Email é obrigatório');
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(user_data.email).trim())) {
       validationErrors.push('Email inválido');
     }
+    // Validar senha
     if (!user_data.password) {
       validationErrors.push('Senha é obrigatória');
     } else if (String(user_data.password).length < 6) {
       validationErrors.push('A senha deve ter no mínimo 6 caracteres');
     }
+    // Validar nome completo
     if (!user_data.full_name || String(user_data.full_name).trim() === '') {
       validationErrors.push('Nome completo é obrigatório');
     }
+    // Validar telefone
     if (!user_data.phone || String(user_data.phone).trim() === '') {
       validationErrors.push('Telefone é obrigatório');
     } else if (!validatePhone(String(user_data.phone))) {
       validationErrors.push('Telefone inválido. Use o formato (XX) XXXXX-XXXX');
     }
-
+    // Se houver erros de validação, retorna todos de uma vez
     if (validationErrors.length > 0) {
+      console.log('Erros de validação encontrados:', validationErrors);
       return new Response(JSON.stringify({
         error: 'Dados inválidos',
         error_code: 'VALIDATION_ERROR',
@@ -193,17 +198,15 @@ serve(async (req)=>{
         }
       });
     }
-
-    // 2. Limpar dados
+    // 2. Limpar dados antes de processar (já validamos que existem)
     const cleanCNPJ = String(company_data.cnpj).replace(/[^\d]/g, '');
     const cleanPhone = String(user_data.phone).replace(/[^\d]/g, '');
-
+    const cleanEmail = String(user_data.email).toLowerCase().trim();
     // 3. Criar cliente Supabase Admin
     const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL'), Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
-
     // 4. Criar usuário no Auth
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-      email: String(user_data.email).toLowerCase().trim(),
+      email: cleanEmail,
       password: String(user_data.password),
       email_confirm: true,
       user_metadata: {
@@ -214,14 +217,18 @@ serve(async (req)=>{
       },
       app_metadata: {
         provider: 'email',
-        providers: ['email']
+        providers: [
+          'email'
+        ]
       }
     });
-
+    // Tratar erros de autenticação
     if (authError) {
       let userMessage = 'Erro ao criar usuário';
       if (authError.message.includes('already registered') || authError.message.includes('already exists')) {
         userMessage = 'Este email já está cadastrado. Faça login ou use outro email.';
+      } else if (authError.message.includes('invalid')) {
+        userMessage = 'Dados de usuário inválidos. Verifique email e senha.';
       }
       return new Response(JSON.stringify({
         error: authError.message,
@@ -237,18 +244,36 @@ serve(async (req)=>{
     const userId = authData.user.id;
     try {
       // 5. Chamar RPC para criar empresa e perfil
+      console.log('Chamando RPC com parâmetros:', {
+        p_user_id: userId,
+        p_company_name: company_data.name.trim(),
+        p_company_cnpj: cleanCNPJ,
+        p_user_full_name: user_data.full_name.trim(),
+        p_user_phone: cleanPhone,
+        p_user_email: cleanEmail // ✨ NOVO PARÂMETRO
+      });
       const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc('create_company_and_profile', {
         p_user_id: userId,
         p_company_name: String(company_data.name).trim(),
         p_company_cnpj: cleanCNPJ,
         p_user_full_name: String(user_data.full_name).trim(),
-        p_user_phone: cleanPhone
+        p_user_phone: cleanPhone,
+        p_user_email: cleanEmail // ✨ NOVO PARÂMETRO
       });
-
-      if (rpcError) throw rpcError;
-
+      console.log('Resposta da RPC:', {
+        data: rpcResult,
+        error: rpcError
+      });
+      // A RPC agora retorna um JSONB com informações detalhadas
+      if (rpcError) {
+        console.error('Erro da RPC:', rpcError);
+        throw rpcError;
+      }
+      // Verificar o resultado da RPC
       if (rpcResult && typeof rpcResult === 'object' && rpcResult.success === false) {
+        // Se a RPC retornou um erro estruturado
         const userMessage = getUserFriendlyError(rpcResult.error_code, rpcResult.error_message);
+        console.log('RPC retornou erro estruturado:', rpcResult);
         // Fazer rollback do usuário criado
         await supabaseAdmin.auth.admin.deleteUser(userId);
         return new Response(JSON.stringify({
@@ -263,15 +288,16 @@ serve(async (req)=>{
           }
         });
       }
-
-      // 6. Sucesso
-      return new Response(JSON.stringify({
+      // 6. Sucesso - Retornar dados criados
+      const successResponse = {
         success: true,
         userId: userId,
-        companyId: rpcResult?.company_id,
+        companyId: rpcResult?.company_id || rpcResult,
         membershipId: rpcResult?.membership_id,
         message: 'Empresa e usuário criados com sucesso!'
-      }), {
+      };
+      console.log('Sucesso! Retornando:', successResponse);
+      return new Response(JSON.stringify(successResponse), {
         status: 201,
         headers: {
           ...corsHeaders,
@@ -280,10 +306,20 @@ serve(async (req)=>{
       });
     } catch (dbError) {
       // Compensação: Deletar usuário se a criação da empresa falhou
+      console.error('Erro na transação DB:', {
+        message: dbError.message,
+        details: dbError.details,
+        hint: dbError.hint,
+        code: dbError.code
+      });
+      // Deletar o usuário criado
       await supabaseAdmin.auth.admin.deleteUser(userId);
+      // Determinar mensagem apropriada para o usuário
       let userMessage = 'Erro ao criar empresa. Tente novamente.';
-      if (dbError.code === '23505') { // unique_violation
+      if (dbError.message?.includes('duplicate') || dbError.code === '23505') {
         userMessage = 'Este CNPJ já está cadastrado no sistema.';
+      } else if (dbError.message?.includes('foreign key') || dbError.code === '23503') {
+        userMessage = 'Erro de configuração do sistema. Contacte o suporte.';
       }
       return new Response(JSON.stringify({
         error: 'Falha ao criar empresa',
@@ -298,6 +334,7 @@ serve(async (req)=>{
       });
     }
   } catch (error) {
+    console.error('Erro inesperado:', error);
     return new Response(JSON.stringify({
       error: 'Erro interno do servidor',
       user_message: 'Ocorreu um erro inesperado. Por favor, tente novamente em alguns instantes.'
@@ -310,6 +347,7 @@ serve(async (req)=>{
     });
   }
 });
+
 ```
 
 ### 1.3. Desenvolvimento: Etapas de Execução (Explicação)
@@ -357,11 +395,13 @@ CREATE OR REPLACE FUNCTION public.create_company_and_profile(
     p_company_name text,
     p_company_cnpj text,
     p_user_full_name text,
-    p_user_phone text
+    p_user_phone text,
+    p_user_email text  -- ✨ NOVO PARÂMETRO
 )
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 SET row_security = off
 AS $function$
 DECLARE
@@ -378,7 +418,7 @@ BEGIN
             'error_message', 'CNPJ é obrigatório'
         );
     END IF;
-
+    
     IF p_company_name IS NULL OR trim(p_company_name) = '' THEN
         RETURN jsonb_build_object(
             'success', false,
@@ -386,16 +426,34 @@ BEGIN
             'error_message', 'Nome da empresa é obrigatório'
         );
     END IF;
-
+    
+    -- ✨ NOVA VALIDAÇÃO: Validar email
+    IF p_user_email IS NULL OR trim(p_user_email) = '' THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error_code', 'INVALID_EMAIL',
+            'error_message', 'Email é obrigatório'
+        );
+    END IF;
+    
+    -- ✨ NOVA VALIDAÇÃO: Validar formato de email
+    IF p_user_email !~ '^[^\s@]+@[^\s@]+\.[^\s@]+$' THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error_code', 'INVALID_EMAIL_FORMAT',
+            'error_message', 'Formato de email inválido'
+        );
+    END IF;
+    
     -- Verificar se a empresa já existe pelo CNPJ
-    SELECT id, name INTO v_existing_company
-    FROM public.companies
+    SELECT id, name INTO v_existing_company 
+    FROM public.companies 
     WHERE cnpj = p_company_cnpj;
-
+    
     IF v_existing_company.id IS NOT NULL THEN
         -- Verificar se o usuário já está associado a esta empresa
         IF EXISTS (
-            SELECT 1 FROM public.memberships
+            SELECT 1 FROM public.memberships 
             WHERE user_id = p_user_id AND company_id = v_existing_company.id
         ) THEN
             RETURN jsonb_build_object(
@@ -411,7 +469,7 @@ BEGIN
             );
         END IF;
     END IF;
-
+    
     -- Verificar se o usuário já tem um perfil
     IF EXISTS (SELECT 1 FROM public.profiles WHERE id = p_user_id) THEN
         RETURN jsonb_build_object(
@@ -426,21 +484,33 @@ BEGIN
         INSERT INTO public.companies (name, cnpj)
         VALUES (p_company_name, p_company_cnpj)
         RETURNING id INTO v_company_id;
-
-        -- Inserir o perfil do usuário com telefone
-        INSERT INTO public.profiles (id, full_name, phone_number)
-        VALUES (p_user_id, p_user_full_name, p_user_phone);
-
-        -- Criar a associação (membership)
-        INSERT INTO public.memberships (user_id, company_id, department_id, has_company_wide_access)
-        VALUES (p_user_id, v_company_id, NULL, true)
+        
+        -- ✨ MODIFICADO: Inserir o perfil do usuário com telefone E EMAIL
+        INSERT INTO public.profiles (id, full_name, phone_number, email)
+        VALUES (p_user_id, p_user_full_name, p_user_phone, p_user_email);
+        
+        -- ✨ MODIFICADO: Criar a associação (membership) incluindo profile_id
+        INSERT INTO public.memberships (
+            user_id, 
+            company_id, 
+            department_id, 
+            has_company_wide_access,
+            profile_id  -- ✨ NOVA COLUNA
+        )
+        VALUES (
+            p_user_id, 
+            v_company_id, 
+            NULL, 
+            true,
+            p_user_id  -- ✨ profile_id = user_id (mesmo ID do auth.users)
+        )
         RETURNING id INTO v_membership_id;
-
+        
         -- Obter o ID do papel de sistema "Admin da Empresa"
-        SELECT id INTO v_admin_role_id
-        FROM public.roles
+        SELECT id INTO v_admin_role_id 
+        FROM public.roles 
         WHERE name = 'Admin da Empresa' AND company_id IS NULL;
-
+        
         IF v_admin_role_id IS NULL THEN
             RETURN jsonb_build_object(
                 'success', false,
@@ -448,19 +518,19 @@ BEGIN
                 'error_message', 'Configuração incorreta: Papel de Admin da Empresa não encontrado. Contacte o suporte.'
             );
         END IF;
-
+        
         -- Atribuir o papel de admin ao novo membro
         INSERT INTO public.membership_roles (membership_id, role_id)
         VALUES (v_membership_id, v_admin_role_id);
-
+        
         -- Retornar sucesso com os IDs criados
         RETURN jsonb_build_object(
             'success', true,
             'company_id', v_company_id,
             'membership_id', v_membership_id
         );
-
-    EXCEPTION
+        
+    EXCEPTION 
         WHEN unique_violation THEN
             -- Captura violações de unicidade (pode acontecer em condições de corrida)
             IF SQLERRM LIKE '%companies_cnpj_key%' THEN
@@ -469,6 +539,12 @@ BEGIN
                     'error_code', 'CNPJ_DUPLICATE',
                     'error_message', format('CNPJ %s já está cadastrado', p_company_cnpj)
                 );
+            ELSIF SQLERRM LIKE '%profiles_email_key%' THEN
+                RETURN jsonb_build_object(
+                    'success', false,
+                    'error_code', 'EMAIL_DUPLICATE',
+                    'error_message', format('Email %s já está cadastrado', p_user_email)
+                );
             ELSE
                 RETURN jsonb_build_object(
                     'success', false,
@@ -476,14 +552,14 @@ BEGIN
                     'error_message', 'Dados duplicados detectados. Verifique as informações.'
                 );
             END IF;
-
+            
         WHEN foreign_key_violation THEN
             RETURN jsonb_build_object(
                 'success', false,
                 'error_code', 'REFERENCE_ERROR',
                 'error_message', 'Erro de referência nos dados. Contacte o suporte.'
             );
-
+            
         WHEN OTHERS THEN
             RETURN jsonb_build_object(
                 'success', false,
@@ -494,6 +570,19 @@ BEGIN
 
 END;
 $function$;
+
+-- ✨ COMENTÁRIOS EXPLICATIVOS
+COMMENT ON FUNCTION public.create_company_and_profile(uuid, text, text, text, text, text) IS 
+'Cria uma nova empresa, perfil de usuário e membership em uma transação atômica.
+VERSÃO 2.0 - Com suporte a email e profile_id.
+Parâmetros:
+- p_user_id: UUID do usuário (auth.users.id)
+- p_company_name: Nome da empresa
+- p_company_cnpj: CNPJ da empresa (apenas números)
+- p_user_full_name: Nome completo do usuário
+- p_user_phone: Telefone do usuário (apenas números)
+- p_user_email: Email do usuário (para popular profiles.email)';
+
 ```
 
 ### 2.3. Desenvolvimento: Etapas de Execução (Explicação)
