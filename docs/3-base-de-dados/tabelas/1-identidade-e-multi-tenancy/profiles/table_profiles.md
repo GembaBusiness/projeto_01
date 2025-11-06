@@ -5,25 +5,34 @@ Armazena os dados públicos do perfil de um utilizador, como nome completo e ava
 
 **DDL (SQL):**
 ```sql
-CREATE TABLE public.profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  full_name TEXT,
-  avatar_url TEXT,
-  job_title TEXT,
-  phone_number TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ,
-  deleted_at TIMESTAMPTZ
-);
+create table public.profiles (
+  id uuid not null,
+  full_name text null,
+  avatar_url text null,
+  job_title text null,
+  phone_number text null,
+  created_at timestamp with time zone not null default now(),
+  updated_at timestamp with time zone null,
+  deleted_at timestamp with time zone null,
+  avatar_path text null,
+  email text null,
+  constraint profiles_pkey primary key (id),
+  constraint profiles_id_fkey foreign KEY (id) references auth.users (id) on delete CASCADE
+) TABLESPACE pg_default;
 
-COMMENT ON TABLE public.profiles IS 'Armazena os dados públicos do perfil do utilizador, estendendo a tabela auth.users.';
+create unique INDEX IF not exists idx_profiles_email_unique on public.profiles using btree (lower(email)) TABLESPACE pg_default;
 
+create trigger profiles_audit_trigger
+after INSERT
+or DELETE
+or
+update on profiles for EACH row
+execute FUNCTION log_audit_trail ();
 
--- Trigger para garantir que um perfil é criado quando um novo utilizador se regista (em definição).
--- A função create_company_and_profile() insere um novo registo em public.profiles.
--- (Ver documentação da função para mais detalhes)
-
--- Trigger para atualizar o timestamp `updated_at` em cada atualização.
+create trigger trigger_validate_profile_email BEFORE INSERT
+or
+update OF email on profiles for EACH row
+execute FUNCTION validate_profile_email ();
 
 ```
 
