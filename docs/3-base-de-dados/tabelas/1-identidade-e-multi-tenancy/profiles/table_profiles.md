@@ -36,6 +36,148 @@ execute FUNCTION validate_profile_email ();
 
 ```
 
+## Funções
+
+As funções definidas para a tabela `profiles` garantem a integridade e consistência dos dados de email entre as tabelas `profiles` e `auth.users`. A sincronização bidirecional do campo email é essencial para manter a coerência do sistema e evitar inconsistências que poderiam comprometer a autenticação e comunicação com os utilizadores.
+
+### Função: `validate_profile_email()`
+
+**Finalidade:**
+Esta função valida que o email armazenado na tabela `profiles` seja sempre idêntico ao email registado na tabela `auth.users`. Isto previne que atualizações diretas na tabela `profiles` criem divergências entre as duas tabelas.
+
+**Por que é necessária:**
+- **Fonte Única de Verdade**: O email em `auth.users` é a fonte autoritativa para autenticação. Qualquer divergência poderia causar problemas de login ou envio de notificações para emails incorretos.
+- **Prevenção de Inconsistências**: Sem esta validação, um utilizador ou processo poderia atualizar o email em `profiles` sem atualizar o correspondente em `auth.users`, gerando estados inconsistentes no sistema.
+- **Segurança**: Garante que não é possível contornar o sistema de autenticação alterando apenas o email no perfil.
+
+**Código:**
+```sql
+-- Trigger que impede salvar email diferente do auth.users
+CREATE OR REPLACE FUNCTION validate_profile_email()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.email != (SELECT email FROM auth.users WHERE id = NEW.id) THEN
+        RAISE EXCEPTION 'Email em profiles deve ser igual ao email em auth.users';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### Função: `sync_profile_email_from_auth()`
+
+**Finalidade:**
+Esta função sincroniza automaticamente o email da tabela `auth.users` para a tabela `profiles` sempre que houver uma alteração no email do utilizador no sistema de autenticação.
+
+**Por que é necessária:**
+- **Sincronização Automática**: Quando o email é atualizado em `auth.users` (por exemplo, através do fluxo de autenticação do Supabase), o email em `profiles` é automaticamente atualizado, mantendo ambas as tabelas sincronizadas.
+- **Redução de Código**: Elimina a necessidade de código adicional na aplicação para manter os emails sincronizados.
+- **Auditoria**: Atualiza automaticamente o campo `updated_at` em `profiles`, mantendo um registo preciso de quando o perfil foi modificado.
+- **Segurança por Definidor**: O uso de `SECURITY DEFINER` permite que a função execute com permissões elevadas, garantindo que a sincronização ocorra mesmo em contextos onde o utilizador não teria permissão direta para atualizar `profiles`.
+
+**Código:**
+```sql
+-- Criar função de sincronização
+CREATE OR REPLACE FUNCTION sync_profile_email_from_auth()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    -- Se o email mudou, atualiza em profiles
+    IF NEW.email IS DISTINCT FROM OLD.email THEN
+        UPDATE profiles
+        SET
+            email = NEW.email,
+            updated_at = NOW()
+        WHERE id = NEW.id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+```
+
+## Triggers
+
+Os triggers implementados para a tabela `profiles` trabalham em conjunto com as funções definidas acima para garantir a sincronização bidirecional e validação do campo email.
+
+### Trigger: `trigger_validate_profile_email`
+
+**Momento de Execução:** `BEFORE INSERT OR UPDATE OF email`
+
+**Finalidade:**
+Este trigger executa a validação do email **antes** de qualquer inserção ou atualização do campo email na tabela `profiles`. Atua como uma barreira de proteção contra modificações que criariam inconsistências.
+
+**Por que é necessário:**
+- **Validação Preventiva**: Bloqueia operações inválidas antes que sejam persistidas no banco de dados.
+- **Feedback Imediato**: Retorna uma exceção clara ao utilizador ou aplicação quando há tentativa de salvar um email divergente.
+- **Proteção em Tempo Real**: Funciona independentemente de qual caminho (API, SQL direto, etc.) está a ser usado para modificar os dados.
+
+**Código:**
+```sql
+CREATE TRIGGER trigger_validate_profile_email
+BEFORE INSERT OR UPDATE OF email ON profiles
+FOR EACH ROW
+EXECUTE FUNCTION validate_profile_email();
+```
+
+### Trigger: `trigger_sync_profile_email`
+
+**Momento de Execução:** `AFTER UPDATE OF email ON auth.users`
+
+**Finalidade:**
+Este trigger executa a sincronização do email **depois** de uma atualização bem-sucedida na tabela `auth.users`. Garante que mudanças na fonte autoritativa sejam propagadas automaticamente para a tabela `profiles`.
+
+**Por que é necessário:**
+- **Fluxo Unidirecional Controlado**: Estabelece que `auth.users` é a fonte autoritativa e `profiles` é o destino da sincronização.
+- **Otimização com `WHEN`**: A cláusula `WHEN (NEW.email IS DISTINCT FROM OLD.email)` garante que o trigger só é executado quando há uma mudança real no email, evitando atualizações desnecessárias.
+- **Completude do Sistema**: Complementa o `trigger_validate_profile_email`, criando um sistema completo de sincronização onde:
+  - Mudanças em `auth.users` → Propagam automaticamente para `profiles`
+  - Tentativas de mudança direta em `profiles` → São validadas contra `auth.users`
+
+**Código:**
+```sql
+-- Criar trigger
+CREATE TRIGGER trigger_sync_profile_email
+AFTER UPDATE OF email ON auth.users
+FOR EACH ROW
+WHEN (NEW.email IS DISTINCT FROM OLD.email)
+EXECUTE FUNCTION sync_profile_email_from_auth();
+```
+
+### Diagrama de Fluxo de Sincronização
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Atualização de Email                     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                ┌─────────────┴─────────────┐
+                │                           │
+         ┌──────▼──────┐            ┌──────▼──────┐
+         │ auth.users  │            │  profiles   │
+         │   UPDATE    │            │   UPDATE    │
+         └──────┬──────┘            └──────┬──────┘
+                │                           │
+                │ AFTER UPDATE              │ BEFORE UPDATE
+                │ trigger_sync_profile_email│ trigger_validate_profile_email
+                │                           │
+         ┌──────▼──────────────────┐ ┌─────▼──────────────────┐
+         │ sync_profile_email_     │ │ validate_profile_email()│
+         │ from_auth()             │ │                        │
+         │                         │ │ Valida se email ==     │
+         │ Atualiza email em       │ │ auth.users.email       │
+         │ profiles automaticamente│ │                        │
+         └─────────────────────────┘ └────────┬───────────────┘
+                                              │
+                                    ┌─────────▼─────────┐
+                                    │ Se válido: Permite│
+                                    │ Se inválido: ERRO │
+                                    └───────────────────┘
+```
+
 **Campos e Restrições:**
 - `id` (UUID, PK, FK): Chave primária que também é uma chave estrangeira para `auth.users(id)`. Garante a relação 1-para-1.
 - `full_name` (TEXT): O nome completo do utilizador.
