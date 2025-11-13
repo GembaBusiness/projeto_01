@@ -16,8 +16,43 @@ CREATE INDEX idx_membership_roles_role_id ON public.membership_roles(role_id);
 ```
 
 ## Políticas de Row Level Security (RLS)
-- **`select`**: Um utilizador pode ver os seus próprios papéis. Um administrador pode ver os papéis de todos os membros da sua empresa.
-- **`insert`/`delete`**: Os administradores da empresa podem atribuir/desatribuir papéis aos membros.
+
+```sql
+-- Política para SELECT (leitura)
+CREATE POLICY "Usuários podem visualizar relacionamentos membership-role"
+ON public.membership_roles FOR SELECT
+TO authenticated
+USING (
+  custom_auth_helpers.has_permission('membership_roles.read')
+);
+
+-- Política para INSERT (criação)
+CREATE POLICY "Usuários podem criar relacionamentos membership-role"
+ON public.membership_roles FOR INSERT
+TO authenticated
+WITH CHECK (
+  custom_auth_helpers.has_permission('membership_roles.create')
+);
+
+-- Política para UPDATE (atualização)
+CREATE POLICY "Usuários podem atualizar relacionamentos membership-role"
+ON public.membership_roles FOR UPDATE
+TO authenticated
+USING (
+  custom_auth_helpers.has_permission('membership_roles.update')
+)
+WITH CHECK (
+  custom_auth_helpers.has_permission('membership_roles.update')
+);
+
+-- Política para DELETE (exclusão)
+CREATE POLICY "Usuários podem excluir relacionamentos membership-role"
+ON public.membership_roles FOR DELETE
+TO authenticated
+USING (
+  custom_auth_helpers.has_permission('membership_roles.delete')
+);
+```
 
 ## Notas
 - Esta tabela liga os utilizadores às suas permissões através de papéis.
